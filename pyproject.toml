@@ -1,7 +1,7 @@
 [project]
 name = "reconciliation_toolkit"
 authors = [
-    { name = "Katalystic consulting", email = "jhalariagautam@gmail.com"}
+    { name = "Katalystic Consulting", email = "jhalariagautam@gmail.com"}
 ]
 description = "Data reconciliation tools for ERPNext"
 requires-python = ">=3.14"

@@ -1,6 +1,6 @@
 app_name = "reconciliation_toolkit"
 app_title = "Reconciliation Toolkit"
-app_publisher = "Katalystic consulting"
+app_publisher = "Katalystic Consulting"
 app_description = "Data reconciliation tools for ERPNext"
 app_email = "jhalariagautam@gmail.com"
 app_license = "mit"
