@@ -11,7 +11,7 @@ across 5 hierarchical levels:
     5. Payment   — mode-level comparison (UPI, Cash, Card, etc.)
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 
 # ─────────────────────────────────────────────
@@ -279,51 +279,60 @@ def _recon_revenue(bs_rec, si_rec, tolerance):
 
 def _recon_payment(bs_rec, si_rec, tolerance):
     """Compare payment modes between BS and SI."""
-    # BS side — extract from Payments object
+    # BS side — extract non-zero payment modes from Payments object.
+    # The PMS payload stores one key per mode, so each non-zero mode counts once.
     bs_payments_obj = bs_rec.get("Payments", {})
-    bs_modes = {}
+    bs_modes = []
+    bs_total_paid = 0.0
     for bs_key, si_mode in PAYMENT_MODE_MAP.items():
         val = _safe_float(bs_payments_obj.get(bs_key))
         if val > 0:
-            bs_modes[si_mode] = val
+            bs_modes.append(si_mode)
+            bs_total_paid += val
 
-    # SI side — aggregate payments by mode_of_payment
-    si_modes = defaultdict(float)
+    # SI side — count payment entries by mode but sum allocated amounts only at total level.
+    si_modes = []
+    si_allocated_total = 0.0
     for pay in si_rec.get("payments", []):
-        mode = pay.get("mode_of_payment", "Unknown")
-        si_modes[mode] += _safe_float(pay.get("allocated_amount"))
+        mode = pay.get("mode_of_payment") or "Unknown"
+        allocated_amount = _safe_float(pay.get("allocated_amount"))
+        if allocated_amount >= 1:
+            si_modes.append(mode)
+        si_allocated_total += allocated_amount
 
-    # Merge all mode keys
-    all_modes = sorted(set(list(bs_modes.keys()) + list(si_modes.keys())))
+    bs_total_paid = _round2(bs_total_paid)
+    si_outstanding = _safe_float(si_rec.get("outstanding_amount"))
+    si_is_fully_paid = abs(si_outstanding) <= tolerance
+    si_total_paid = _round2(_safe_float(si_rec.get("grand_total")) if si_is_fully_paid else si_allocated_total)
+    erp_exceeds_pms = si_total_paid > bs_total_paid + tolerance
+    if si_is_fully_paid:
+        total_match = not erp_exceeds_pms
+    else:
+        total_match = _amounts_match(bs_total_paid, si_total_paid, tolerance)
 
-    modes = []
-    all_match = True
-
-    for mode in all_modes:
-        bs_val = _round2(bs_modes.get(mode, 0))
-        si_val = _round2(si_modes.get(mode, 0))
-        match = _amounts_match(bs_val, si_val, tolerance)
-
-        if not match:
-            all_match = False
-
-        modes.append({
+    bs_mode_counts = Counter(bs_modes)
+    si_mode_counts = Counter(si_modes)
+    all_modes = sorted(set(bs_mode_counts) | set(si_mode_counts))
+    modes = [
+        {
             "mode": mode,
-            "bs_amount": bs_val,
-            "si_amount": si_val,
-            "difference": _round2(bs_val - si_val),
-            "match": match,
-        })
-
-    bs_total_paid = _round2(sum(bs_modes.values()))
-    si_total_paid = _round2(sum(si_modes.values()))
+            "bs_count": bs_mode_counts.get(mode, 0),
+            "si_count": si_mode_counts.get(mode, 0),
+            "match": bs_mode_counts.get(mode, 0) == si_mode_counts.get(mode, 0),
+        }
+        for mode in all_modes
+    ]
+    modes_match = all(item["match"] for item in modes)
 
     return {
-        "status": STATUS_MATCHED if all_match else STATUS_MISMATCH,
+        "status": STATUS_MATCHED if (total_match and modes_match) else STATUS_MISMATCH,
         "modes": modes,
         "bs_total_paid": bs_total_paid,
         "si_total_paid": si_total_paid,
-        "total_match": _amounts_match(bs_total_paid, si_total_paid, tolerance),
+        "total_match": total_match,
+        "si_is_fully_paid": si_is_fully_paid,
+        "erp_exceeds_pms": erp_exceeds_pms,
+        "mode_counts_match": modes_match,
     }
 
 

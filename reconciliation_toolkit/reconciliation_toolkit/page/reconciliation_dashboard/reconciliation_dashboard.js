@@ -118,10 +118,12 @@ function mount_vue_app() {
 
     createApp({
         data() {
+            const today = frappe.datetime.get_today();
             return {
-                bs_ctl: null, si_ctl: null, tol_ctl: null,
+                from_ctl: null, to_ctl: null, company_ctl: null, tol_ctl: null,
                 result: null,
                 loading: false,
+                companyOptions: [],
                 view: "bookings",
                 search: "",
                 filter: "all",
@@ -142,6 +144,8 @@ function mount_vue_app() {
                 showSettings: false,
                 pmsWarning: '',
                 erpWarning: '',
+                defaultFromDate: today,
+                defaultToDate: today,
             };
         },
 
@@ -265,9 +269,13 @@ function mount_vue_app() {
 
         methods: {
             run() {
-                const bs = this.bs_ctl.get_value();
-                const si = this.si_ctl.get_value();
-                if (!bs || !si) { frappe.msgprint("Upload both JSON files to proceed."); return; }
+                const fromDate = this.from_ctl.get_value();
+                const toDate = this.to_ctl.get_value();
+                const company = this.company_ctl.get_value();
+                if (!fromDate || !toDate || !company) {
+                    frappe.msgprint("Enter from date, to date, and company.");
+                    return;
+                }
                 this.loading = true;
                 this.result = null;
                 this.expanded = null;
@@ -285,9 +293,14 @@ function mount_vue_app() {
 
                 frappe.call({
                     method: "reconciliation_toolkit.reconciliation_toolkit.page.reconciliation_dashboard.reconciliation_dashboard.run_reconciliation",
-                    args: { bs_file: bs, si_file: si, tolerance: this.tol_ctl.get_value() || 1 },
+                    args: {
+                        from_date: fromDate,
+                        to_date: toDate,
+                        company: company,
+                        tolerance: this.tol_ctl.get_value() || 1,
+                    },
                     freeze: true,
-                    freeze_message: "Analysing data across all reconciliation layers…",
+                    freeze_message: "Fetching API data and analysing reconciliation layers…",
                     callback: r => {
                         this.result = r.message;
                         this.loading = false;
@@ -354,13 +367,18 @@ function mount_vue_app() {
                         ln.push('PAYMENTS  ✓ Matched');
                     } else {
                         ln.push(pad('PAYMENTS', 20) + pad('PMS', 14) + 'ERP');
+                        ln.push(`  ${pad('Total Paid', 16)} ${a(py.bs_total_paid).padStart(12)}  ${a(py.si_total_paid).padStart(12)}  ${py.total_match ? '✓' : '✗'}`);
+                        if (py.si_is_fully_paid) {
+                            ln.push('  ERP marked fully paid (outstanding amount is zero)');
+                        } else if (py.erp_exceeds_pms) {
+                            ln.push('  ERP paid total exceeds PMS total');
+                        }
                         if (py.modes && py.modes.length) {
                             for (const m of py.modes) {
-                                const mark = m.bs_amount === m.si_amount ? '✓' : '✗';
-                                ln.push(`  ${pad(m.mode || '—', 16)} ${a(m.bs_amount).padStart(12)}  ${a(m.si_amount).padStart(12)}  ${mark}`);
+                                const mark = m.match ? '✓' : '✗';
+                                ln.push(`  ${pad(m.mode || '—', 16)} ${String(m.bs_count).padStart(12)}  ${String(m.si_count).padStart(12)}  ${mark}`);
                             }
                         }
-                        ln.push(`  ${pad('Total', 16)} ${a(py.bs_total_paid).padStart(12)}  ${a(py.si_total_paid).padStart(12)}  ${py.bs_total_paid === py.si_total_paid ? '✓' : '✗'}`);
                     }
                     ln.push('');
                 }
@@ -444,14 +462,35 @@ function mount_vue_app() {
         },
 
         mounted() {
-            this.bs_ctl = frappe.ui.form.make_control({
-                parent: document.getElementById("rc_bs"), df: { label: "Bill Summary (JSON)", fieldtype: "Attach" }, render_input: true,
+            this.from_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_from"),
+                df: { label: "From Date", fieldtype: "Date", default: this.defaultFromDate },
+                render_input: true,
             });
-            this.si_ctl = frappe.ui.form.make_control({
-                parent: document.getElementById("rc_si"), df: { label: "Sales Invoice (JSON)", fieldtype: "Attach" }, render_input: true,
+            this.to_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_to"),
+                df: { label: "To Date", fieldtype: "Date", default: this.defaultToDate },
+                render_input: true,
+            });
+            this.company_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_company"),
+                df: { label: "Company", fieldtype: "Select", reqd: 1, options: [""] },
+                render_input: true,
             });
             this.tol_ctl = frappe.ui.form.make_control({
                 parent: document.getElementById("rc_tol"), df: { label: "Tolerance (₹)", fieldtype: "Float", default: 1 }, render_input: true,
+            });
+            frappe.call({
+                method: "reconciliation_toolkit.reconciliation_toolkit.page.reconciliation_dashboard.reconciliation_dashboard.get_company_options",
+                callback: (r) => {
+                    const options = r.message || [];
+                    this.companyOptions = options;
+                    this.company_ctl.df.options = ["", ...options].join("\n");
+                    this.company_ctl.refresh();
+                    if (options.length) {
+                        this.company_ctl.set_value(options[0]);
+                    }
+                },
             });
             // Load saved colors from localStorage
             const savedPms = localStorage.getItem('rc_pms_color');
@@ -471,8 +510,9 @@ function mount_vue_app() {
 <!-- ════════ UPLOAD ════════ -->
 <div class="rc-upload">
     <div class="rc-upload__fields">
-        <div id="rc_bs" class="rc-upload__f"></div>
-        <div id="rc_si" class="rc-upload__f"></div>
+        <div id="rc_from" class="rc-upload__f"></div>
+        <div id="rc_to" class="rc-upload__f"></div>
+        <div id="rc_company" class="rc-upload__f"></div>
         <div id="rc_tol" class="rc-upload__f rc-upload__f--sm"></div>
     </div>
     <button class="btn btn-primary btn-sm rc-upload__btn" @click="run" :disabled="loading">
@@ -482,8 +522,8 @@ function mount_vue_app() {
 
 <div v-if="!result && !loading" class="rc-placeholder">
     <div class="rc-placeholder__icon">📊</div>
-    <h5>Upload files to begin</h5>
-    <p>Drag & drop your Bill Summary and Sales Invoice JSON files above, then click Reconcile.</p>
+    <h5>Fetch data to begin</h5>
+    <p>Select the company and date range above, then click Reconcile.</p>
 </div>
 
 <template v-if="result">
@@ -707,22 +747,27 @@ function mount_vue_app() {
                             <span v-html="badge(f.payment?.status)" style="margin-left:8px"></span>
                         </div>
                         <table v-if="f.payment" class="table rc-sub-tbl">
-                            <thead><tr><th>Mode</th><th class="r" :style="pmsHeadStyle">PMS</th><th class="r" :style="erpHeadStyle">ERP</th><th class="r">Diff</th><th>Result</th></tr></thead>
+                            <thead><tr><th>Mode</th><th class="r" :style="pmsHeadStyle">PMS Count</th><th class="r" :style="erpHeadStyle">ERP Count</th><th>Result</th></tr></thead>
                             <tbody>
                             <tr v-for="m in f.payment.modes" :key="m.mode"
                                 :class="!m.match ? 'rc-row-err' : ''">
                                 <td>{{ m.mode }}</td>
-                                <td class="r" :style="pmsStyle">{{ amt(m.bs_amount) }}</td>
-                                <td class="r" :style="erpStyle">{{ amt(m.si_amount) }}</td>
-                                <td class="r" :class="m.difference?'rc-diff':''">{{ diff(m.difference) }}</td>
+                                <td class="r" :style="pmsStyle">{{ m.bs_count }}</td>
+                                <td class="r" :style="erpStyle">{{ m.si_count }}</td>
                                 <td v-html="badge(m.match ? 'matched' : 'mismatch')"></td>
                             </tr>
                             <tr class="rc-row-total">
                                 <td><strong>Total Paid</strong></td>
                                 <td class="r" :style="pmsStyle"><strong>{{ amt(f.payment.bs_total_paid) }}</strong></td>
                                 <td class="r" :style="erpStyle"><strong>{{ amt(f.payment.si_total_paid) }}</strong></td>
-                                <td></td>
                                 <td v-html="badge(f.payment.total_match ? 'matched' : 'mismatch')"></td>
+                            </tr>
+                            <tr v-if="f.payment.si_is_fully_paid || f.payment.erp_exceeds_pms">
+                                <td><strong>Rule</strong></td>
+                                <td colspan="3">
+                                    <span v-if="f.payment.si_is_fully_paid">ERP marked fully paid because outstanding amount is zero.</span>
+                                    <span v-else-if="f.payment.erp_exceeds_pms">ERP paid total exceeds PMS total.</span>
+                                </td>
                             </tr>
                             </tbody>
                         </table>
