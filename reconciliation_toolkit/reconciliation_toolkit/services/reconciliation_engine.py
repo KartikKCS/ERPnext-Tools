@@ -11,7 +11,7 @@ across 5 hierarchical levels:
     5. Payment   — mode-level comparison (UPI, Cash, Card, etc.)
 """
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 
 # ─────────────────────────────────────────────
@@ -310,22 +310,25 @@ def _recon_payment(bs_rec, si_rec, tolerance):
     else:
         total_match = _amounts_match(bs_total_paid, si_total_paid, tolerance)
 
-    bs_mode_counts = Counter(bs_modes)
-    si_mode_counts = Counter(si_modes)
-    all_modes = sorted(set(bs_mode_counts) | set(si_mode_counts))
-    modes = [
-        {
-            "mode": mode,
-            "bs_count": bs_mode_counts.get(mode, 0),
-            "si_count": si_mode_counts.get(mode, 0),
-            "match": bs_mode_counts.get(mode, 0) == si_mode_counts.get(mode, 0),
-        }
-        for mode in all_modes
-    ]
-    modes_match = all(item["match"] for item in modes)
+    # Payment mode-count comparison is intentionally disabled for now.
+    # bs_mode_counts = Counter(bs_modes)
+    # si_mode_counts = Counter(si_modes)
+    # all_modes = sorted(set(bs_mode_counts) | set(si_mode_counts))
+    # modes = [
+    #     {
+    #         "mode": mode,
+    #         "bs_count": bs_mode_counts.get(mode, 0),
+    #         "si_count": si_mode_counts.get(mode, 0),
+    #         "match": bs_mode_counts.get(mode, 0) == si_mode_counts.get(mode, 0),
+    #     }
+    #     for mode in all_modes
+    # ]
+    # modes_match = all(item["match"] for item in modes)
+    modes = []
+    modes_match = True
 
     return {
-        "status": STATUS_MATCHED if (total_match and modes_match) else STATUS_MISMATCH,
+        "status": STATUS_MATCHED if total_match else STATUS_MISMATCH,
         "modes": modes,
         "bs_total_paid": bs_total_paid,
         "si_total_paid": si_total_paid,
