@@ -107,6 +107,24 @@
 .rc-tbl td { padding: 9px 12px; vertical-align: middle; border-color: var(--border-color); }
 .rc-tbl .r { text-align: right; font-variant-numeric: tabular-nums; }
 .rc-id { font-weight: 600; color: var(--primary); font-size: 12px; }
+.rc-copy-badge {
+    margin-left: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--subtle-fg, #f8f9fa);
+    color: var(--text-muted);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.rc-copy-badge:hover {
+    background: var(--fg-color);
+    color: var(--primary);
+    border-color: var(--primary);
+}
 
 .rc-clickrow { cursor: pointer; transition: background .12s; }
 .rc-clickrow:hover { background: var(--subtle-fg, #f8f9fa) !important; }
@@ -556,4 +574,3 @@
 [data-theme="dark"] .rc-sort-panel { box-shadow: -4px 0 24px rgba(0,0,0,.3); }
 [data-theme="dark"] .rc-panel-overlay { background: rgba(0,0,0,.45); }
 [data-theme="dark"] .rc-chip--active { background: var(--primary); color: #fff; }
-

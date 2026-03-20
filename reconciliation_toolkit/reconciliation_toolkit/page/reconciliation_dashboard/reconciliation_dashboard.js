@@ -22,7 +22,6 @@ function badge(status) {
         matched:  ["✓ Matched",  "badge--ok"],
         mismatch: ["✗ Mismatch", "badge--err"],
         bs_only:  ["Missing in ERP", "badge--warn"],
-        si_only:  ["Missing in PMS", "badge--warn"],
         no_data:  ["Unavailable",    "badge--muted"],
     };
     const [label, cls] = m[status] || m.no_data;
@@ -39,6 +38,11 @@ function diff(v) {
     const n = Number(v);
     if (n === 0) return "₹0.00";
     return (n > 0 ? "+" : "") + amt(n);
+}
+
+function isIssueDiff(v) {
+    if (v == null) return false;
+    return Math.abs(Number(v)) >= 1;
 }
 
 function pct(n, total) {
@@ -170,7 +174,10 @@ function mount_vue_app() {
                 else if (this.filter === "mismatch")
                     items = items.filter(x => x.status === "mismatch");
                 else if (this.filter === "missing")
-                    items = items.filter(x => x.status === "bs_only" || x.status === "si_only");
+                    items = items.filter(x => x.status === "bs_only");
+
+                // Hide ERP-only entries from the UI entirely.
+                items = items.filter(x => x.status !== "si_only");
 
                 if (this.errorsOnly) {
                     items = items.filter(x => x.status !== "matched");
@@ -226,7 +233,7 @@ function mount_vue_app() {
                     });
                 }
                 else if (sb === 'status') {
-                    const pri = { bs_only: 0, si_only: 0, mismatch: 1, matched: 2 };
+                    const pri = { bs_only: 0, mismatch: 1, matched: 2 };
                     items.sort((a, b) => (pri[a.status] ?? 1) - (pri[b.status] ?? 1));
                 }
 
@@ -389,6 +396,15 @@ function mount_vue_app() {
                     frappe.show_alert({message: 'Dispute note copied', indicator: 'green'});
                 });
             },
+            copyIdentifier(value, label, event) {
+                if (event) {
+                    event.stopPropagation();
+                    event.preventDefault();
+                }
+                navigator.clipboard.writeText(value).then(() => {
+                    frappe.show_alert({message: `${label} copied`, indicator: 'green'});
+                });
+            },
 
             // Sort/filter panel methods
             toggleSortPanel() { this.showSortPanel = !this.showSortPanel; },
@@ -458,7 +474,7 @@ function mount_vue_app() {
                 }
             },
 
-            badge, amt, diff, pct,
+            badge, amt, diff, pct, isIssueDiff,
         },
 
         mounted() {
@@ -581,7 +597,7 @@ function mount_vue_app() {
             <button class="btn btn-xs" :class="filter==='all'?'btn-default active':'btn-default'" @click="setFilter('all')">All</button>
             <button class="btn btn-xs" :class="filter==='matched'?'btn-success active':'btn-default'" @click="setFilter('matched')">Matched</button>
             <button class="btn btn-xs" :class="filter==='mismatch'?'btn-danger active':'btn-default'" @click="setFilter('mismatch')">Issues</button>
-            <button class="btn btn-xs" :class="filter==='missing'?'btn-warning active':'btn-default'" @click="setFilter('missing')">Missing</button>
+            <button class="btn btn-xs" :class="filter==='missing'?'btn-warning active':'btn-default'" @click="setFilter('missing')">Missing ERP</button>
         </span>
 
         <!-- Settings Gear -->
@@ -633,15 +649,18 @@ function mount_vue_app() {
         </tr></thead>
         <tbody>
         <tr v-for="b in paged" :key="b.booking_id" class="rc-clickrow"
-            :class="{'rc-row-err':b.status==='mismatch','rc-row-warn':b.status==='bs_only'||b.status==='si_only'}"
+            :class="{'rc-row-err':b.status==='mismatch','rc-row-warn':b.status==='bs_only'}"
             @click="drillBooking(b.booking_id)">
-            <td class="rc-id">{{ b.booking_id }}</td>
+            <td class="rc-id">
+                <span>{{ b.booking_id }}</span>
+                <button class="rc-copy-badge" @click.stop="copyIdentifier(b.booking_id, 'Booking ID', $event)">Copy</button>
+            </td>
             <td>{{ b.bs_guest || '—' }}</td>
             <td>{{ b.bs_source || '—' }}</td>
             <td class="r">{{ b.bs_folio_count }}</td>
             <td class="r" :style="pmsStyle">{{ amt(b.bs_total) }}</td>
             <td class="r" :style="erpStyle">{{ amt(b.si_total) }}</td>
-            <td class="r" :class="b.difference?'rc-diff':''">{{ diff(b.difference) }}</td>
+            <td class="r" :class="isIssueDiff(b.difference)?'rc-diff':''">{{ diff(b.difference) }}</td>
             <td v-html="badge(b.status)"></td>
         </tr>
         <tr v-if="!paged.length"><td colspan="8" class="rc-empty-row">No records match your filters.</td></tr>
@@ -660,15 +679,18 @@ function mount_vue_app() {
         <tbody>
         <template v-for="f in paged" :key="f.folio">
         <tr class="rc-clickrow"
-            :class="{'rc-row-err':f.status==='mismatch','rc-row-warn':f.status==='bs_only'||f.status==='si_only'}"
+            :class="{'rc-row-err':f.status==='mismatch','rc-row-warn':f.status==='bs_only'}"
             @click="toggleDetail(f.folio)">
             <td class="rc-caret">{{ expanded===f.folio?'▾':'▸' }}</td>
-            <td class="rc-id">{{ f.folio }}</td>
+            <td class="rc-id">
+                <span>{{ f.folio }}</span>
+                <button class="rc-copy-badge" @click.stop="copyIdentifier(f.folio, 'Folio', $event)">Copy</button>
+            </td>
             <td>{{ f.bs_guest_name || f.si_customer || '—' }}</td>
             <td>{{ f.bs_room || '—' }}</td>
             <td class="r" :style="pmsStyle">{{ amt(f.bs_grand_total) }}</td>
             <td class="r" :style="erpStyle">{{ amt(f.si_grand_total) }}</td>
-            <td class="r" :class="f.difference&&f.difference!==0?'rc-diff':''">{{ diff(f.difference) }}</td>
+            <td class="r" :class="isIssueDiff(f.difference)?'rc-diff':''">{{ diff(f.difference) }}</td>
             <td>
                 <div style="font-size: 11px; display: flex; gap: 4px;">
                     <span :title="'Amount: ' + (f.amount_match ? 'OK' : 'Error')">{{ f.amount_match ? '🔘' : '🔴' }}</span>
@@ -701,21 +723,21 @@ function mount_vue_app() {
                                     <td>Pre-tax Revenue</td>
                                     <td class="r" :style="pmsStyle">{{ amt(f.revenue.bs_pretax) }}</td>
                                     <td class="r" :style="erpStyle">{{ amt(f.revenue.si_pretax) }}</td>
-                                    <td class="r" :class="(f.revenue.bs_pretax-f.revenue.si_pretax)?'rc-diff':''">{{ diff(f.revenue.bs_pretax - f.revenue.si_pretax) }}</td>
+                                    <td class="r" :class="isIssueDiff(f.revenue.bs_pretax - f.revenue.si_pretax)?'rc-diff':''">{{ diff(f.revenue.bs_pretax - f.revenue.si_pretax) }}</td>
                                     <td v-html="badge(f.revenue.pretax_match ? 'matched' : 'mismatch')"></td>
                                 </tr>
                                 <tr :class="!f.revenue.tax_match ? 'rc-row-err' : ''">
                                     <td>Tax</td>
                                     <td class="r" :style="pmsStyle">{{ amt(f.revenue.bs_tax) }}</td>
                                     <td class="r" :style="erpStyle">{{ amt(f.revenue.si_tax) }}</td>
-                                    <td class="r" :class="(f.revenue.bs_tax-f.revenue.si_tax)?'rc-diff':''">{{ diff(f.revenue.bs_tax - f.revenue.si_tax) }}</td>
+                                    <td class="r" :class="isIssueDiff(f.revenue.bs_tax - f.revenue.si_tax)?'rc-diff':''">{{ diff(f.revenue.bs_tax - f.revenue.si_tax) }}</td>
                                     <td v-html="badge(f.revenue.tax_match ? 'matched' : 'mismatch')"></td>
                                 </tr>
                                 <tr class="rc-row-total">
                                     <td><strong>Total</strong></td>
                                     <td class="r" :style="pmsStyle"><strong>{{ amt(f.revenue.bs_total) }}</strong></td>
                                     <td class="r" :style="erpStyle"><strong>{{ amt(f.revenue.si_total) }}</strong></td>
-                                    <td class="r" :class="(f.revenue.bs_total-f.revenue.si_total)?'rc-diff':''">{{ diff(f.revenue.bs_total - f.revenue.si_total) }}</td>
+                                    <td class="r" :class="isIssueDiff(f.revenue.bs_total - f.revenue.si_total)?'rc-diff':''">{{ diff(f.revenue.bs_total - f.revenue.si_total) }}</td>
                                     <td v-html="badge(f.revenue.total_match ? 'matched' : 'mismatch')"></td>
                                 </tr>
                                 </tbody>
