@@ -10,7 +10,7 @@ from reconciliation_toolkit.reconciliation_toolkit.services.reconciliation_engin
 SALES_INVOICE_API_URL = "https://erp.ecohotels.in/api/method/get-invoices"
 BILL_SUMMARY_API_BASE_URL = "https://api.katalystcs.com.au/api/reports/bill-summary-report"
 SALES_INVOICE_HEADERS = {
-    "Authorization": "token f057640903efd07:c4a4063097d1a59",
+    "Authorization": "token 24a082c28cc0ec2:380a7793028f821",
     "Content-Type": "application/json",
     "Cookie": "full_name=Guest; sid=Guest; system_user=no; user_id=Guest; user_image=",
 }
