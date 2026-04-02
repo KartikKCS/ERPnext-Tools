@@ -115,6 +115,21 @@ function _suggestContrast(hex) {
     return '#' + toHex(r1) + toHex(g1) + toHex(b1);
 }
 
+function statusIcon(type, isOk) {
+    const iconMap = {
+        amount: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect><circle cx="12" cy="12" r="2"></circle><path d="M6 12h.01M18 12h.01"></path></svg>`,
+        revenue: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>`,
+        payment: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>`
+    };
+    if (!iconMap[type]) return '';
+    const color = isOk ? 'var(--green-500, #10b981)' : 'var(--red-500, #ef4444)';
+    const titleText = type.charAt(0).toUpperCase() + type.slice(1);
+    const resultText = isOk ? 'OK' : 'Error';
+    return `<span class="rc-icon" style="color: ${color}; display: inline-flex; vertical-align: middle; margin: 0 2px;" title="${titleText}: ${resultText}">${iconMap[type]}</span>`;
+}
+
+
+
 /* ── Vue App ── */
 
 function mount_vue_app() {
@@ -124,11 +139,13 @@ function mount_vue_app() {
         data() {
             const today = frappe.datetime.get_today();
             return {
+                isActivePage: true,
+                sidebarTarget: null,
                 from_ctl: null, to_ctl: null, company_ctl: null, tol_ctl: null,
                 result: null,
                 loading: false,
                 companyOptions: [],
-                view: "bookings",
+                view: "group_bookings",
                 search: "",
                 filter: "all",
                 errorsOnly: false,
@@ -136,8 +153,11 @@ function mount_vue_app() {
                 sel_booking: null,
                 page: 1,
                 perPage: 20,
-                // Sort & Filter panel state
-                showSortPanel: false,
+                
+                // Sidebar state
+                sidebarOpen: true,
+
+                // Sort & Filter state
                 sortBy: 'none',
                 filterMinDiff: 0,
                 filterSources: [],
@@ -155,16 +175,23 @@ function mount_vue_app() {
 
         computed: {
             s()       { return this.result?.summary || null; },
+            rev_bk()  { return this.result?.revenue_breakdown || null; },
+            col_bk()  { return this.result?.collection_breakdown || null; },
             bk_list() { return this.result?.bookings?.bookings || []; },
             fo_all()  { return this.result?.folios || []; },
             has_bk()  { return this.result?.bookings?.status !== "no_data"; },
 
             rows() {
-                let source = this.view === "bookings"
-                    ? this.bk_list
-                    : (this.sel_booking
+                let source;
+                if (this.view === "group_bookings") {
+                    source = this.bk_list.filter(b => b.booking_type === "Group");
+                } else if (this.view === "individual_bookings") {
+                    source = this.bk_list.filter(b => b.booking_type !== "Group");
+                } else {
+                    source = this.sel_booking
                         ? (this.bk_list.find(b => b.booking_id === this.sel_booking)?.folios || [])
-                        : this.fo_all);
+                        : this.fo_all;
+                }
 
                 let items = source.slice();
 
@@ -175,9 +202,13 @@ function mount_vue_app() {
                     items = items.filter(x => x.status === "mismatch");
                 else if (this.filter === "missing")
                     items = items.filter(x => x.status === "bs_only");
+                else if (this.filter === "missing_pms")
+                    items = items.filter(x => x.status === "si_only");
 
-                // Hide ERP-only entries from the UI entirely.
-                items = items.filter(x => x.status !== "si_only");
+                // Hide ERP-only entries unless explicitly filtering for them
+                if (this.filter !== "missing_pms") {
+                    items = items.filter(x => x.status !== "si_only");
+                }
 
                 if (this.errorsOnly) {
                     items = items.filter(x => x.status !== "matched");
@@ -187,7 +218,7 @@ function mount_vue_app() {
                 if (this.search) {
                     const q = this.search.toLowerCase();
                     items = items.filter(x => {
-                        const fields = this.view === "bookings"
+                        const fields = (this.view === "group_bookings" || this.view === "individual_bookings")
                             ? [x.booking_id, x.bs_guest]
                             : [x.folio, x.bs_guest_name, x.si_customer];
                         return fields.some(f => f && f.toLowerCase().includes(q));
@@ -200,7 +231,7 @@ function mount_vue_app() {
                 }
 
                 // Source filter (bookings view)
-                if (this.filterSources.length > 0 && this.view === 'bookings') {
+                if (this.filterSources.length > 0 && (this.view === 'group_bookings' || this.view === 'individual_bookings')) {
                     items = items.filter(x => this.filterSources.includes(x.bs_source || '—'));
                 }
 
@@ -287,7 +318,7 @@ function mount_vue_app() {
                 this.result = null;
                 this.expanded = null;
                 this.sel_booking = null;
-                this.view = "bookings";
+                this.view = "group_bookings";
                 this.filter = "all";
                 this.search = "";
                 this.errorsOnly = false;
@@ -321,7 +352,7 @@ function mount_vue_app() {
             setView(v)   { this.view = v; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
             drillBooking(id) { this.sel_booking = id; this.view = "folios"; this.expanded = null; this.page = 1; this.filter = "all"; },
             toggleDetail(f)  { this.expanded = this.expanded === f ? null : f; },
-            goBack()         { this.sel_booking = null; this.view = "bookings"; this.expanded = null; },
+            goBack()         { this.sel_booking = null; this.view = "group_bookings"; this.expanded = null; },
 
             copyDispute(f) {
                 const a = this.amt;
@@ -474,7 +505,7 @@ function mount_vue_app() {
                 }
             },
 
-            badge, amt, diff, pct, isIssueDiff,
+            badge, amt, diff, pct, isIssueDiff, statusIcon,
         },
 
         mounted() {
@@ -515,6 +546,31 @@ function mount_vue_app() {
             if (savedErp) this.erpColor = savedErp;
             // Click-outside listener for settings popover
             document.addEventListener('click', this.closeSettings);
+
+            // Mount sidebar to Frappe's global sidebar
+            const fSidebar = document.querySelector('.sidebar-items') || document.querySelector('.body-sidebar') || document.querySelector('.layout-side-section') || document.querySelector('.sidebar-left');
+            if (fSidebar) {
+                if (!fSidebar.id) fSidebar.id = 'frappe-global-sidebar';
+                this.sidebarTarget = '#' + fSidebar.id;
+            }
+            
+            // Apply resize CSS to the outermost layout column so Frappe honors the drag width
+            const sideSection = document.querySelector('.layout-side-section');
+            if (sideSection) {
+                sideSection.style.resize = 'horizontal';
+                sideSection.style.overflowY = 'auto';
+                sideSection.style.overflowX = 'hidden'; 
+                sideSection.style.minWidth = '220px';
+                sideSection.style.maxWidth = '500px'; 
+                sideSection.style.paddingRight = '5px'; // room for resize handle
+            }
+            frappe.pages['reconciliation-dashboard'] = frappe.pages['reconciliation-dashboard'] || {};
+            frappe.pages['reconciliation-dashboard'].on_page_show = () => {
+                this.isActivePage = true;
+            };
+            frappe.pages['reconciliation-dashboard'].on_page_hide = () => {
+                this.isActivePage = false;
+            };
         },
         beforeUnmount() {
             document.removeEventListener('click', this.closeSettings);
@@ -522,126 +578,255 @@ function mount_vue_app() {
 
         template: `
 <div class="rc">
+  <div class="rc-layout">
+    
+    <!-- ════════ INJECTED LEFT SIDEBAR ════════ -->
+    <Teleport :to="sidebarTarget" :disabled="!sidebarTarget" v-if="sidebarTarget || !sidebarTarget">
+        <div id="rc-injected-sidebar" class="rc-injected-sidebar" :class="{'rc-sidebar': !sidebarTarget}" v-show="isActivePage" style="padding: 10px 15px; margin-top: 10px; border-top: 1px dashed var(--border-color);">
+            <div class="rc-sidebar__section" style="padding: 0 0 10px 0; border: none;">
+                <div class="rc-sidebar__label" style="margin-bottom: 8px; font-weight: 700;">Reconciliation Params</div>
+                <div class="rc-sidebar__field" id="rc_company"></div>
+                <div class="rc-sidebar__field" id="rc_from" style="margin-top: 4px;"></div>
+                <div class="rc-sidebar__field" id="rc_to" style="margin-top: 4px;"></div>
+                <div class="rc-sidebar__field" id="rc_tol" style="margin-top: 4px;"></div>
+                <button class="btn btn-primary btn-sm" @click="run" :disabled="loading" style="margin-top: 12px; width: 100%;">
+                    {{ loading ? "Analysing…" : "Reconcile" }}
+                </button>
+            </div>
 
-<!-- ════════ UPLOAD ════════ -->
-<div class="rc-upload">
-    <div class="rc-upload__fields">
-        <div id="rc_from" class="rc-upload__f"></div>
-        <div id="rc_to" class="rc-upload__f"></div>
-        <div id="rc_company" class="rc-upload__f"></div>
-        <div id="rc_tol" class="rc-upload__f rc-upload__f--sm"></div>
-    </div>
-    <button class="btn btn-primary btn-sm rc-upload__btn" @click="run" :disabled="loading">
-        {{ loading ? "Analysing…" : "Reconcile" }}
-    </button>
-</div>
+            <template v-if="result">
 
-<div v-if="!result && !loading" class="rc-placeholder">
-    <div class="rc-placeholder__icon">📊</div>
-    <h5>Fetch data to begin</h5>
-    <p>Select the company and date range above, then click Reconcile.</p>
-</div>
-
-<template v-if="result">
-
-<!-- ════════ OVERVIEW STRIP ════════ -->
-<div class="rc-overview">
-    <div class="rc-stat rc-stat--accent">
-        <span class="rc-stat__n">{{ s.total_folios }}</span>
-        <span class="rc-stat__l">Folios</span>
-    </div>
-    <div class="rc-stat" :class="s.match_percent >= 90 ? 'rc-stat--ok' : 'rc-stat--err'">
-        <span class="rc-stat__n">{{ s.match_percent }}%</span>
-        <span class="rc-stat__l">Overall Match</span>
-    </div>
-    <div class="rc-stat" :class="s.levels.folio.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-        <span class="rc-stat__n">{{ s.levels.folio.matched }}</span>
-        <span class="rc-stat__l">Folios OK</span>
-    </div>
-    <div class="rc-stat" :class="s.levels.folio.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-        <span class="rc-stat__n">{{ s.levels.folio.mismatched }}</span>
-        <span class="rc-stat__l">Amount Issues</span>
-    </div>
-    <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-        <span class="rc-stat__n">{{ s.levels.revenue.mismatched }}</span>
-        <span class="rc-stat__l">Revenue Issues</span>
-    </div>
-    <div class="rc-stat" :class="s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-        <span class="rc-stat__n">{{ s.levels.payment.mismatched }}</span>
-        <span class="rc-stat__l">Payment Issues</span>
-    </div>
-</div>
-
-<!-- ════════ TOOLBAR ════════ -->
-<div class="rc-bar">
-    <div class="rc-bar__l">
-        <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
-        <template v-if="!sel_booking">
-            <button class="btn btn-xs" :class="view==='bookings' ? 'btn-primary':'btn-default'"
-                    @click="setView('bookings')" :disabled="!has_bk">Bookings</button>
-            <button class="btn btn-xs" :class="view==='folios' ? 'btn-primary':'btn-default'"
-                    @click="setView('folios')">Folios</button>
-        </template>
-        <span v-if="sel_booking" class="rc-crumb">{{ sel_booking }}</span>
-    </div>
-    <div class="rc-bar__r">
-        <button class="btn btn-xs btn-default rc-sort-btn" @click="toggleSortPanel">
-            🔀 Sort & Filter
-            <span v-if="activeFilterCount" class="rc-filter-badge">{{ activeFilterCount }}</span>
-        </button>
-        <label style="display:inline-flex; align-items:center; gap:6px; margin-right: 12px; cursor: pointer; color: var(--red-500); font-weight: 600;">
-            <input type="checkbox" v-model="errorsOnly" /> Only Show Errors
-        </label>
-        <input class="form-control input-xs rc-search" placeholder="Search…" v-model="search" />
-        <span class="rc-filters">
-            <button class="btn btn-xs" :class="filter==='all'?'btn-default active':'btn-default'" @click="setFilter('all')">All</button>
-            <button class="btn btn-xs" :class="filter==='matched'?'btn-success active':'btn-default'" @click="setFilter('matched')">Matched</button>
-            <button class="btn btn-xs" :class="filter==='mismatch'?'btn-danger active':'btn-default'" @click="setFilter('mismatch')">Issues</button>
-            <button class="btn btn-xs" :class="filter==='missing'?'btn-warning active':'btn-default'" @click="setFilter('missing')">Missing ERP</button>
-        </span>
-
-        <!-- Settings Gear -->
-        <div class="rc-settings-wrap" ref="settingsWrap">
-            <button class="btn btn-xs btn-default rc-settings-btn" @click.stop="toggleSettings" title="Data color settings">
-                ⚙️
-                <span v-if="pmsColor" class="rc-color-dot" :style="{background: pmsColor}"></span>
-                <span v-if="erpColor" class="rc-color-dot" :style="{background: erpColor}"></span>
-            </button>
-            <div v-if="showSettings" class="rc-settings-popover" @click.stop>
-                <div class="rc-settings-popover__hdr">
-                    <span>Data Colors</span>
-                    <button class="btn btn-xs btn-default" @click="resetColors" v-if="pmsColor || erpColor">Reset</button>
-                </div>
-                <div class="rc-settings-popover__section">
-                    <div class="rc-settings-popover__label">PMS</div>
-                    <div class="rc-color-row">
-                        <input type="color" class="rc-color-input" :value="pmsInputColor" @input="onPmsInput" title="Pick PMS color" />
-                        <span class="rc-color-preview" v-if="pmsColor" :style="{background: pmsColor}"></span>
-                        <span v-if="pmsColor" class="rc-color-hex">{{ pmsColor }}</span>
-                        <span v-else class="rc-color-hex rc-color-hex--muted">Not set</span>
+                <div class="rc-sidebar__section">
+                    <div class="rc-sidebar__label">Status Filter</div>
+                    <div class="rc-chip-group">
+                        <button class="rc-chip" :class="{'rc-chip--active': filter==='all'}" @click="setFilter('all')">All</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filter==='matched'}" @click="setFilter('matched')">Matched</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filter==='mismatch'}" @click="setFilter('mismatch')">Issues</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filter==='missing'}" @click="setFilter('missing')">Missing ERP</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filter==='missing_pms'}" @click="setFilter('missing_pms')">Missing PMS</button>
                     </div>
-                    <div v-if="pmsWarning" class="rc-color-warn">⚠ {{ pmsWarning }}</div>
                 </div>
-                <div class="rc-settings-popover__section">
-                    <div class="rc-settings-popover__label">ERP</div>
-                    <div class="rc-color-row">
-                        <input type="color" class="rc-color-input" :value="erpInputColor" @input="onErpInput" title="Pick ERP color" />
-                        <span class="rc-color-preview" v-if="erpColor" :style="{background: erpColor}"></span>
-                        <span v-if="erpColor" class="rc-color-hex">{{ erpColor }}</span>
-                        <span v-else class="rc-color-hex rc-color-hex--muted">Not set</span>
+
+                <div class="rc-sidebar__section" v-if="view==='folios'">
+                    <div class="rc-sidebar__label">Issue Type</div>
+                    <div class="rc-chip-group">
+                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='all'}" @click="filterMismatchType='all'">All</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='amount'}" @click="filterMismatchType='amount'">Amount</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='revenue'}" @click="filterMismatchType='revenue'">Revenue</button>
+                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='payment'}" @click="filterMismatchType='payment'">Payment</button>
                     </div>
-                    <div v-if="erpWarning" class="rc-color-warn">⚠ {{ erpWarning }}</div>
                 </div>
-                <div class="rc-settings-popover__hint">
-                    Avoid reds & greens — they're reserved for status indicators
+
+                <div class="rc-sidebar__section" v-if="(view==='group_bookings' || view==='individual_bookings') && uniqueSources.length > 0">
+                    <div class="rc-sidebar__label">Sources</div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <label v-for="src in uniqueSources" :key="src" style="margin:0; font-size:12px; font-weight:500; cursor:pointer; display:flex; align-items:center;">
+                            <input type="checkbox" :checked="filterSources.includes(src)" @click.stop="toggleSource(src)" style="margin:0 6px 0 0;" />
+                            {{ src }}
+                        </label>
+                    </div>
+                </div>
+
+                <div class="rc-sidebar__section">
+                    <div class="rc-sidebar__label">Sort</div>
+                    <select class="form-control input-xs" v-model="sortBy" style="width:100%; margin:0;">
+                        <option value="none">Default</option>
+                        <option value="discrepancy">Discrepancy ↓</option>
+                        <option value="pms">PMS Amount ↓</option>
+                        <option value="erp">ERP Amount ↓</option>
+                        <option value="guest">Guest A–Z</option>
+                    </select>
+                </div>
+
+                <div class="rc-sidebar__section">
+                    <div class="rc-sidebar__label">Display Options</div>
+                    <label style="display:flex; align-items:center; gap:6px; cursor: pointer; color: var(--red-500); font-weight: 600; font-size: 11px; margin-bottom: 12px;">
+                        <input type="checkbox" v-model="errorsOnly" style="margin:0" /> Error Rows Only
+                    </label>
+                    
+                    <div class="rc-sidebar__label">Diff Amount > {{ filterMinDiff > 0 ? filterMinDiff : 'Any' }}</div>
+                    <input type="range" class="rc-range" min="0" max="5000" step="50" v-model.number="filterMinDiff" style="width:100%" />
+                </div>
+
+                <div class="rc-sidebar__footer" style="padding: 10px 0;">
+                    <button class="btn btn-xs btn-default" style="width:100%;" @click="clearAllFilters">Reset View</button>
+                </div>
+            </template>
+        </div>
+    </Teleport>
+
+    <!-- ════════ MAIN CONTENT ════════ -->
+    <div class="rc-main" style="flex:1; min-width:0;">
+        <div class="rc-bar" style="margin-bottom: 20px;">
+            <div class="rc-bar__l">
+                <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
+                <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
+                <template v-if="!sel_booking">
+                    <button class="btn btn-xs" :class="view==='group_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('group_bookings')" :disabled="!has_bk">Group Bookings</button>
+                    <button class="btn btn-xs" :class="view==='individual_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('individual_bookings')" :disabled="!has_bk">Individual Bookings</button>
+                    <button class="btn btn-xs" :class="view==='folios' ? 'btn-primary':'btn-default'"
+                            @click="setView('folios')">Folios</button>
+                </template>
+                <span v-if="sel_booking" class="rc-crumb">{{ sel_booking }}</span>
+            </div>
+            <div class="rc-bar__r">
+                <div style="width: 280px; margin-right: 12px;" v-if="result">
+                    <input class="form-control input-xs rc-search" placeholder="Search invoices/guests…" v-model="search" style="width:100%" />
+                </div>
+                <!-- Settings Gear -->
+                <div class="rc-settings-wrap" ref="settingsWrap">
+                    <button class="btn btn-xs btn-default rc-settings-btn" @click.stop="toggleSettings" title="Data color settings">
+                        ⚙️
+                        <span v-if="pmsColor" class="rc-color-dot" :style="{background: pmsColor}"></span>
+                        <span v-if="erpColor" class="rc-color-dot" :style="{background: erpColor}"></span>
+                    </button>
+                    <div v-if="showSettings" class="rc-settings-popover" @click.stop>
+                        <div class="rc-settings-popover__hdr">
+                            <span>Data Colors</span>
+                            <button class="btn btn-xs btn-default" @click="resetColors" v-if="pmsColor || erpColor">Reset</button>
+                        </div>
+                        <div class="rc-settings-popover__section">
+                            <div class="rc-settings-popover__label">PMS</div>
+                            <div class="rc-color-row">
+                                <input type="color" class="rc-color-input" :value="pmsInputColor" @input="onPmsInput" title="Pick PMS color" />
+                                <span class="rc-color-preview" v-if="pmsColor" :style="{background: pmsColor}"></span>
+                                <span v-if="pmsColor" class="rc-color-hex">{{ pmsColor }}</span>
+                                <span v-else class="rc-color-hex rc-color-hex--muted">Not set</span>
+                            </div>
+                            <div v-if="pmsWarning" class="rc-color-warn">⚠ {{ pmsWarning }}</div>
+                        </div>
+                        <div class="rc-settings-popover__section">
+                            <div class="rc-settings-popover__label">ERP</div>
+                            <div class="rc-color-row">
+                                <input type="color" class="rc-color-input" :value="erpInputColor" @input="onErpInput" title="Pick ERP color" />
+                                <span class="rc-color-preview" v-if="erpColor" :style="{background: erpColor}"></span>
+                                <span v-if="erpColor" class="rc-color-hex">{{ erpColor }}</span>
+                                <span v-else class="rc-color-hex rc-color-hex--muted">Not set</span>
+                            </div>
+                            <div v-if="erpWarning" class="rc-color-warn">⚠ {{ erpWarning }}</div>
+                        </div>
+                        <div class="rc-settings-popover__hint">
+                            Avoid reds & greens — they're reserved for status indicators
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-</div>
+
+        <div v-if="!result && !loading" class="rc-placeholder">
+            <div class="rc-placeholder__icon">📊</div>
+            <h5>Fetch data to begin</h5>
+            <p>Select the company and date range in the sidebar, then click Reconcile.</p>
+        </div>
+
+        <template v-if="result">
+            <!-- ════════ OVERVIEW STRIP ════════ -->
+            <div class="rc-overview">
+                <div class="rc-stat rc-stat--accent">
+                    <span class="rc-stat__n">{{ s.total_folios }}</span>
+                    <span class="rc-stat__l">Invoices</span>
+                </div>
+                <div class="rc-stat" :class="s.match_percent >= 90 ? 'rc-stat--ok' : 'rc-stat--err'">
+                    <span class="rc-stat__n">{{ s.match_percent }}%</span>
+                    <span class="rc-stat__l">Overall Match</span>
+                </div>
+                <div class="rc-stat" :class="s.levels.folio.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.folio.mismatched }}</span>
+                    <span class="rc-stat__l">Amount Issues</span>
+                </div>
+                <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.revenue.mismatched }}</span>
+                    <span class="rc-stat__l">Revenue Issues</span>
+                </div>
+                <div class="rc-stat" :class="s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.payment.mismatched }}</span>
+                    <span class="rc-stat__l">Payment Issues</span>
+                </div>
+            </div>
+
+            <!-- ════════ BREAKDOWN PANELS ════════ -->
+            <div class="rc-breakdown-panel" v-if="rev_bk && col_bk && (view==='group_bookings' || view==='individual_bookings') && !sel_booking">
+                <!-- Revenue Breakdown -->
+                <div class="rc-breakdown-card">
+                    <div class="rc-breakdown-card__hdr">
+                        <span>Revenue Breakdown</span>
+                        <span class="rc-breakdown-card__date">Active Date Range</span>
+                    </div>
+                    <table class="table rc-bk-tbl">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>PMS Ct</th>
+                                <th :style="pmsHeadStyle">PMS Amt</th>
+                                <th>ERP Ct</th>
+                                <th :style="erpHeadStyle">ERP Amt</th>
+                                <th>Diff</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="cat in ['Walk-in', 'OTA', 'TPA']" :key="cat" :class="isIssueDiff(rev_bk[cat].bs_amt - rev_bk[cat].si_amt) ? 'rc-row-err' : ''">
+                                <td>{{ cat }}</td>
+                                <td>{{ rev_bk[cat].bs_ct }}</td>
+                                <td :style="pmsStyle">{{ amt(rev_bk[cat].bs_amt) }}</td>
+                                <td>{{ rev_bk[cat].si_ct }}</td>
+                                <td :style="erpStyle">{{ amt(rev_bk[cat].si_amt) }}</td>
+                                <td :class="isIssueDiff(rev_bk[cat].bs_amt - rev_bk[cat].si_amt) ? 'rc-diff' : ''">{{ diff(rev_bk[cat].bs_amt - rev_bk[cat].si_amt) }}</td>
+                            </tr>
+                            <tr class="rc-row-total">
+                                <td>Total</td>
+                                <td>{{ ['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].bs_ct, 0) }}</td>
+                                <td :style="pmsStyle">{{ amt(['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].bs_amt, 0)) }}</td>
+                                <td>{{ ['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].si_ct, 0) }}</td>
+                                <td :style="erpStyle">{{ amt(['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].si_amt, 0)) }}</td>
+                                <td>{{ diff(['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].bs_amt, 0) - ['Walk-in', 'OTA', 'TPA'].reduce((s, c) => s + rev_bk[c].si_amt, 0)) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Collection Breakdown -->
+                <div class="rc-breakdown-card">
+                    <div class="rc-breakdown-card__hdr">
+                        <span>Collection Breakdown</span>
+                        <span class="rc-breakdown-card__date">Active Date Range</span>
+                    </div>
+                    <table class="table rc-bk-tbl">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>PMS Ct</th>
+                                <th :style="pmsHeadStyle">PMS Amt</th>
+                                <th>ERP Ct</th>
+                                <th :style="erpHeadStyle">ERP Amt</th>
+                                <th>Diff</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="cat in ['Cash', 'UPI', 'Debit/Credit', 'Other']" :key="cat" :class="isIssueDiff(col_bk[cat].bs_amt - col_bk[cat].si_amt) ? 'rc-row-err' : ''">
+                                <td>{{ cat }}</td>
+                                <td>{{ col_bk[cat].bs_ct }}</td>
+                                <td :style="pmsStyle">{{ amt(col_bk[cat].bs_amt) }}</td>
+                                <td>{{ col_bk[cat].si_ct }}</td>
+                                <td :style="erpStyle">{{ amt(col_bk[cat].si_amt) }}</td>
+                                <td :class="isIssueDiff(col_bk[cat].bs_amt - col_bk[cat].si_amt) ? 'rc-diff' : ''">{{ diff(col_bk[cat].bs_amt - col_bk[cat].si_amt) }}</td>
+                            </tr>
+                            <tr class="rc-row-total">
+                                <td>Total</td>
+                                <td>{{ ['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].bs_ct, 0) }}</td>
+                                <td :style="pmsStyle">{{ amt(['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].bs_amt, 0)) }}</td>
+                                <td>{{ ['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].si_ct, 0) }}</td>
+                                <td :style="erpStyle">{{ amt(['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].si_amt, 0)) }}</td>
+                                <td>{{ diff(['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].bs_amt, 0) - ['Cash', 'UPI', 'Debit/Credit', 'Other'].reduce((s, c) => s + col_bk[c].si_amt, 0)) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
 <!-- ════════ BOOKING TABLE ════════ -->
-<div v-if="view==='bookings'" class="rc-card">
+<div v-if="view==='group_bookings' || view==='individual_bookings'" class="rc-card" style="margin-bottom: 30px">
     <table class="table rc-tbl">
         <thead><tr>
             <th>Booking</th><th>Guest</th><th>Source</th><th class="r">Folios</th>
@@ -652,8 +837,10 @@ function mount_vue_app() {
             :class="{'rc-row-err':b.status==='mismatch','rc-row-warn':b.status==='bs_only'}"
             @click="drillBooking(b.booking_id)">
             <td class="rc-id">
-                <span>{{ b.booking_id }}</span>
-                <button class="rc-copy-badge" @click.stop="copyIdentifier(b.booking_id, 'Booking ID', $event)">Copy</button>
+                <div style="display:flex; align-items:center;">
+                    <span>{{ b.booking_id }}</span>
+                    <button class="rc-copy-badge" @click.stop="copyIdentifier(b.booking_id, 'Booking ID', $event)">Copy</button>
+                </div>
             </td>
             <td>{{ b.bs_guest || '—' }}</td>
             <td>{{ b.bs_source || '—' }}</td>
@@ -668,13 +855,13 @@ function mount_vue_app() {
     </table>
 </div>
 
-<!-- ════════ FOLIO TABLE ════════ -->
-<div v-if="view==='folios'" class="rc-card">
+<!-- ════════ FOLIO (INVOICE) TABLE ════════ -->
+<div v-if="view==='folios'" class="rc-card" style="margin-bottom: 30px">
     <table class="table rc-tbl">
         <thead><tr>
             <th style="width:24px"></th><th>Folio</th><th>Guest</th><th>Room</th>
             <th class="r" :style="pmsHeadStyle">PMS Amount</th><th class="r" :style="erpHeadStyle">ERP Amount</th><th class="r">Diff</th>
-            <th>Payment</th><th>Status</th>
+            <th>Checks</th><th>Status</th>
         </tr></thead>
         <tbody>
         <template v-for="f in paged" :key="f.folio">
@@ -692,10 +879,10 @@ function mount_vue_app() {
             <td class="r" :style="erpStyle">{{ amt(f.si_grand_total) }}</td>
             <td class="r" :class="isIssueDiff(f.difference)?'rc-diff':''">{{ diff(f.difference) }}</td>
             <td>
-                <div style="font-size: 11px; display: flex; gap: 4px;">
-                    <span :title="'Amount: ' + (f.amount_match ? 'OK' : 'Error')">{{ f.amount_match ? '🔘' : '🔴' }}</span>
-                    <span v-if="f.revenue" :title="'Revenue: ' + (f.revenue.status==='matched' ? 'OK' : 'Error')">{{ f.revenue.status==='matched' ? '🔘' : '🔴' }}</span>
-                    <span v-if="f.payment" :title="'Payment: ' + (f.payment.status==='matched' ? 'OK' : 'Error')">{{ f.payment.status==='matched' ? '🔘' : '🔴' }}</span>
+                <div style="font-size: 11px; display: flex; gap: 4px; align-items:center;">
+                    <span v-html="statusIcon('amount', f.amount_match)"></span>
+                    <span v-if="f.revenue" v-html="statusIcon('revenue', f.revenue.status==='matched')"></span>
+                    <span v-if="f.payment" v-html="statusIcon('payment', f.payment.status==='matched')"></span>
                 </div>
             </td>
             <td v-html="badge(f.status)"></td>
@@ -814,75 +1001,9 @@ function mount_vue_app() {
 </div>
 
 </template>
-
-<!-- ════════ SORT & FILTER PANEL ════════ -->
-<div v-if="showSortPanel" class="rc-panel-overlay" @click="closeSortPanel"></div>
-<transition name="rc-slide">
-<div v-if="showSortPanel" class="rc-sort-panel">
-    <div class="rc-sort-panel__hdr">
-        <span>Sort & Filter</span>
-        <button class="btn btn-xs btn-default" @click="closeSortPanel">✕</button>
-    </div>
-
-    <div class="rc-sort-panel__section">
-        <div class="rc-sort-panel__label">SORT BY</div>
-        <div class="rc-radio-group">
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='none'}">
-                <input type="radio" v-model="sortBy" value="none" /> Default
-            </label>
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='discrepancy'}">
-                <input type="radio" v-model="sortBy" value="discrepancy" /> Discrepancy ↓
-            </label>
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='pms'}">
-                <input type="radio" v-model="sortBy" value="pms" /> PMS Amount ↓
-            </label>
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='erp'}">
-                <input type="radio" v-model="sortBy" value="erp" /> ERP Amount ↓
-            </label>
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='guest'}">
-                <input type="radio" v-model="sortBy" value="guest" /> Guest A–Z
-            </label>
-            <label class="rc-radio" :class="{'rc-radio--active': sortBy==='status'}">
-                <input type="radio" v-model="sortBy" value="status" /> Status Priority
-            </label>
-        </div>
-    </div>
-
-    <div class="rc-sort-panel__section">
-        <div class="rc-sort-panel__label">MINIMUM DIFFERENCE</div>
-        <div class="rc-range-row">
-            <input type="range" class="rc-range" v-model.number="filterMinDiff" min="0" max="50000" step="100" />
-            <span class="rc-range-val">{{ filterMinDiff > 0 ? '₹' + filterMinDiff.toLocaleString('en-IN') : 'Off' }}</span>
-        </div>
-    </div>
-
-    <div class="rc-sort-panel__section">
-        <div class="rc-sort-panel__label">MISMATCH TYPE</div>
-        <div class="rc-chip-group">
-            <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='all'}" @click="filterMismatchType='all'">All</button>
-            <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='revenue'}" @click="filterMismatchType='revenue'">Revenue</button>
-            <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='payment'}" @click="filterMismatchType='payment'">Payment</button>
-            <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='amount'}" @click="filterMismatchType='amount'">Amount</button>
-        </div>
-    </div>
-
-    <div class="rc-sort-panel__section" v-if="view==='bookings' && uniqueSources.length > 1">
-        <div class="rc-sort-panel__label">SOURCE</div>
-        <div class="rc-source-list">
-            <label class="rc-source-item" v-for="src in uniqueSources" :key="src">
-                <input type="checkbox" :checked="filterSources.includes(src)" @change="toggleSource(src)" />
-                <span>{{ src }}</span>
-            </label>
-        </div>
-    </div>
-
-    <div class="rc-sort-panel__footer" v-if="activeFilterCount > 0">
-        <button class="btn btn-xs btn-default rc-clear-btn" @click="clearAllFilters">Clear All Filters</button>
-    </div>
-</div>
-</transition>
-
-</div>
+        </div> <!-- end .rc-main -->
+    </div> <!-- end .rc-layout -->
+</div> <!-- end .rc -->
         `,
     }).mount("#recon-app");
 }
