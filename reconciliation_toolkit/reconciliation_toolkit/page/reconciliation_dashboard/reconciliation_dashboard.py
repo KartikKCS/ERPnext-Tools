@@ -32,6 +32,10 @@ COMPANY_MAPPING = {
         "abbr": "IN000002",
         "property_id": "66faf317b1e4100019b5bd2e",
     },
+    "THE ECO SATVA – AYODHYA": {
+        "abbr": "IN000007",
+        "property_id": "69a9a0207f5ecbf005b052c7",
+    },
 }
 
 
