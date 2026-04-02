@@ -100,6 +100,7 @@ def _extract_si_records(si_data):
         records = msg.get("data", [])
     else:
         records = []
+    # Using custom_folio_number as primary matching key
     return [r for r in records if r.get("custom_folio_number")]
 
 
@@ -125,8 +126,8 @@ def _build_si_folio_map(si_records):
     return folio_map
 
 
-def _recon_folio(bs_rec, si_rec, tolerance):
-    """Reconcile a single folio across all sub-levels."""
+def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False):
+    """Reconcile a single folio/invoice across all sub-levels."""
     folio_result = {
         "folio": bs_rec.get("folioNo") if bs_rec else si_rec.get("custom_folio_number"),
         "status": STATUS_MATCHED,
@@ -163,13 +164,13 @@ def _recon_folio(bs_rec, si_rec, tolerance):
         })
         # Sub-levels
         folio_result["revenue"] = _recon_revenue(bs_rec, si_rec, tolerance)
-        folio_result["payment"] = _recon_payment(bs_rec, si_rec, tolerance)
+        folio_result["payment"] = _recon_payment(bs_rec, si_rec, tolerance, is_group_booking)
 
         # Overall status: mismatch if ANY sub-level has issues
         rev_ok = folio_result["revenue"]["status"] == STATUS_MATCHED
         pay_ok = folio_result["payment"]["status"] == STATUS_MATCHED
 
-        folio_result["status"] = STATUS_MATCHED if (amount_match and status_match and rev_ok and pay_ok) else STATUS_MISMATCH
+        folio_result["status"] = STATUS_MATCHED if (amount_match and rev_ok and pay_ok) else STATUS_MISMATCH
 
     elif bs_rec:
         folio_result.update({
@@ -202,6 +203,127 @@ def _recon_folio(bs_rec, si_rec, tolerance):
 
     return folio_result
 
+
+
+# ─────────────────────────────────────────────
+# Breakdowns and Classifications
+# ─────────────────────────────────────────────
+
+def _build_revenue_breakdown(bs_records, si_records):
+    """Aggregate revenue by source: Walk-in, OTA, TPA."""
+    # We will aggregate from the BS records directly. To get ERP values, 
+    # we find the matching SI record by custom_folio_number.
+    si_map = {r.get("custom_folio_number"): r for r in si_records if r.get("custom_folio_number")}
+    
+    breakdown = {
+        "Walk-in": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+        "OTA": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+        "TPA": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+    }
+
+    for r in bs_records:
+        if not r.get("folioNo"): continue
+        
+        src = str(r.get("bookingType", "")).strip().lower()
+        if "walk" in src or "individual" in src:
+            cat = "Walk-in"
+        elif "tpa" in src:
+            cat = "TPA"
+        elif "ota" in src or "travel" in src or "make" in src or "make my trip" in src:
+            cat = "OTA"
+        else:
+            # Fallback if source is MakeMyTrip etc.
+            source = str(r.get("source", "")).lower()
+            if "make" in source or "agoda" in source or "go" in source or "cleartrip" in source:
+                cat = "OTA"
+            else:
+                cat = "Walk-in"  # default bucket
+
+        bs_total = _safe_float(r.get("grandTotal"))
+        
+        breakdown[cat]["bs_ct"] += 1
+        breakdown[cat]["bs_amt"] += bs_total
+
+        # Corresponding ERP totals
+        si = si_map.get(r.get("folioNo"))
+        if si:
+            breakdown[cat]["si_ct"] += 1
+            breakdown[cat]["si_amt"] += _safe_float(si.get("grand_total"))
+
+    return breakdown
+
+
+def _build_collection_breakdown(bs_records, si_records):
+    """Aggregate collections by grouping payment modes."""
+    breakdown = {
+        "Cash": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+        "UPI": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+        "Debit/Credit": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+        "Other": {"bs_ct": 0, "bs_amt": 0.0, "si_ct": 0, "si_amt": 0.0},
+    }
+
+    def _map_mode(mode_name):
+        mn = str(mode_name or "").lower().replace(" ", "")
+        if "cash" in mn: return "Cash"
+        if "upi" in mn: return "UPI"
+        if "credit" in mn or "debit" in mn or "card" in mn: return "Debit/Credit"
+        return "Other"
+
+    # BS side
+    for r in bs_records:
+        if not r.get("folioNo"): continue
+        
+        payments = r.get("Payments", {})
+        has_counted = set()
+        for k, v in payments.items():
+            val = _safe_float(v)
+            if val > 0:
+                cat = _map_mode(k)
+                breakdown[cat]["bs_amt"] += val
+                if cat not in has_counted:
+                    breakdown[cat]["bs_ct"] += 1
+                    has_counted.add(cat)
+
+    # SI side
+    for r in si_records:
+        if not r.get("custom_folio_number"): continue
+        
+        has_counted = set()
+        outstanding = _safe_float(r.get("outstanding_amount"))
+        grand_total = _safe_float(r.get("grand_total"))
+        is_paid = abs(outstanding) <= 1.0
+
+        si_local_payments = 0.0
+
+        for pay in r.get("payments", []):
+            cat = _map_mode(pay.get("mode_of_payment", ""))
+            amount = _safe_float(pay.get("allocated_amount"))
+            # If invoice is paid out but no payments mapped properly, amount logic is fuzzy.
+            # We'll rely on allocated_amount for breakdown
+            if amount > 0:
+                breakdown[cat]["si_amt"] += amount
+                si_local_payments += amount
+                if cat not in has_counted:
+                    breakdown[cat]["si_ct"] += 1
+                    has_counted.add(cat)
+                    
+        # Inject missing "Fully Paid" totals into 'Other' if child array was completely empty
+        if is_paid and si_local_payments < (grand_total - 1.0):
+            diff_to_allocate = grand_total - si_local_payments
+            breakdown["Other"]["si_amt"] += diff_to_allocate
+            if "Other" not in has_counted:
+                breakdown["Other"]["si_ct"] += 1
+
+    return breakdown
+
+
+def _classify_booking_type(folios):
+    """
+    Given a list of strings like ["ECO_KOC-2279", "ECO_KOC-2279-1"], return "Group" or "Individual".
+    A Group booking is any reservation that contains more than 1 unique folio identifier.
+    """
+    unique_folios = set(f for f in folios if f)
+    return "Group" if len(unique_folios) > 1 else "Individual"
 
 
 # ─────────────────────────────────────────────
@@ -277,18 +399,22 @@ def _recon_revenue(bs_rec, si_rec, tolerance):
 # Level 5: Payment Recon
 # ─────────────────────────────────────────────
 
-def _recon_payment(bs_rec, si_rec, tolerance):
+def _recon_payment(bs_rec, si_rec, tolerance, is_group_booking=False):
     """Compare payment modes between BS and SI."""
+    # Standalone/Individual logic
     # BS side — extract non-zero payment modes from Payments object.
-    # The PMS payload stores one key per mode, so each non-zero mode counts once.
     bs_payments_obj = bs_rec.get("Payments", {})
     bs_modes = []
-    bs_total_paid = 0.0
+    bs_raw_total = 0.0
     for bs_key, si_mode in PAYMENT_MODE_MAP.items():
         val = _safe_float(bs_payments_obj.get(bs_key))
         if val > 0:
             bs_modes.append(si_mode)
-            bs_total_paid += val
+            bs_raw_total += val
+
+    # Cap PMS payment to the Folio Grand Total to ignore cross-folio booking advances
+    bs_grand_total = _safe_float(bs_rec.get("grandTotal"))
+    bs_total_paid = _round2(min(bs_raw_total, bs_grand_total))
 
     # SI side — count payment entries by mode but sum allocated amounts only at total level.
     si_modes = []
@@ -305,25 +431,12 @@ def _recon_payment(bs_rec, si_rec, tolerance):
     si_is_fully_paid = abs(si_outstanding) <= tolerance
     si_total_paid = _round2(_safe_float(si_rec.get("grand_total")) if si_is_fully_paid else si_allocated_total)
     erp_exceeds_pms = si_total_paid > bs_total_paid + tolerance
-    if si_is_fully_paid:
-        total_match = not erp_exceeds_pms
+    
+    if is_group_booking and si_is_fully_paid:
+        total_match = True
     else:
         total_match = _amounts_match(bs_total_paid, si_total_paid, tolerance)
 
-    # Payment mode-count comparison is intentionally disabled for now.
-    # bs_mode_counts = Counter(bs_modes)
-    # si_mode_counts = Counter(si_modes)
-    # all_modes = sorted(set(bs_mode_counts) | set(si_mode_counts))
-    # modes = [
-    #     {
-    #         "mode": mode,
-    #         "bs_count": bs_mode_counts.get(mode, 0),
-    #         "si_count": si_mode_counts.get(mode, 0),
-    #         "match": bs_mode_counts.get(mode, 0) == si_mode_counts.get(mode, 0),
-    #     }
-    #     for mode in all_modes
-    # ]
-    # modes_match = all(item["match"] for item in modes)
     modes = []
     modes_match = True
 
@@ -336,6 +449,7 @@ def _recon_payment(bs_rec, si_rec, tolerance):
         "si_is_fully_paid": si_is_fully_paid,
         "erp_exceeds_pms": erp_exceeds_pms,
         "mode_counts_match": modes_match,
+        "is_group_aggregated": False,
     }
 
 
@@ -373,8 +487,8 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
     bookings = []
     counts = {"matched": 0, "mismatched": 0, "bs_only": 0, "si_only": 0}
 
-    # Build folio result lookup
-    folio_lookup = {f["folio"]: f for f in folio_results}
+    # Build folio result lookup using the matching key (folio)
+    folio_lookup = {f["folio"]: f for f in folio_results if f.get("folio")}
 
     for bid in all_booking_ids:
         bs_recs = bs_bookings.get(bid, [])
@@ -382,6 +496,12 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
 
         bs_folios = [r["folioNo"] for r in bs_recs]
         si_folios = [r["custom_folio_number"] for r in si_recs]
+        
+        # We use folios since that's our base match
+        unique_bs_folios = set(bs_folios)
+        unique_si_folios = set(si_folios)
+
+        booking_type = _classify_booking_type(bs_folios + si_folios)
 
         bs_total = _round2(sum(_safe_float(r.get("grandTotal")) for r in bs_recs))
         si_total = _round2(sum(_safe_float(r.get("grand_total")) for r in si_recs))
@@ -392,7 +512,7 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
         elif not bs_recs:
             status = STATUS_SI_ONLY
             counts["si_only"] += 1
-        elif _amounts_match(bs_total, si_total, tolerance) and len(bs_folios) == len(si_folios):
+        elif _amounts_match(bs_total, si_total, tolerance):
             status = STATUS_MATCHED
             counts["matched"] += 1
         else:
@@ -401,15 +521,16 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
 
         # Collect folio results for this booking
         booking_folios = []
-        for f in sorted(set(bs_folios + si_folios)):
-            if f in folio_lookup:
-                booking_folios.append(folio_lookup[f])
+        for fol in sorted(unique_bs_folios | unique_si_folios):
+            if fol in folio_lookup:
+                booking_folios.append(folio_lookup[fol])
 
         bookings.append({
             "booking_id": bid,
             "status": status,
-            "bs_folio_count": len(bs_folios),
-            "si_folio_count": len(si_folios),
+            "booking_type": booking_type,
+            "bs_folio_count": len(unique_bs_folios),
+            "si_folio_count": len(unique_si_folios),
             "bs_total": bs_total,
             "si_total": si_total,
             "difference": _round2(bs_total - si_total),
@@ -456,7 +577,7 @@ def _build_summary(folio_results, booking_result):
             pay_st = f["payment"]["status"]
             payment_counts["matched" if pay_st == STATUS_MATCHED else "mismatched"] += 1
 
-        if f.get("invoice"):
+        if f.get("invoice") and isinstance(f["invoice"], dict):
             inv_st = f["invoice"]["status"]
             if inv_st == STATUS_MATCHED:
                 invoice_counts["matched"] += 1
@@ -496,23 +617,39 @@ def run_reconciliation(bs_data, si_data, tolerance=1.0):
         tolerance: Amount difference tolerance in currency units.
 
     Returns:
-        dict with summary, bookings, and folios.
+        dict with summary, bookings, folios, and breakdowns.
     """
     bs_records = _extract_bs_records(bs_data)
     si_records = _extract_si_records(si_data)
 
-    # Build lookup maps
-    bs_folio_map = _build_bs_folio_map(bs_records)
-    si_folio_map = _build_si_folio_map(si_records)
+    # Build lookup maps by FOLIO number
+    bs_folio_map = {r.get("folioNo"): r for r in bs_records if r.get("folioNo")}
+    si_folio_map = {r.get("custom_folio_number"): r for r in si_records if r.get("custom_folio_number")}
 
-    # Level 2: Folio recon (also triggers L3, L4, L5 per folio)
     all_folios = sorted(set(list(bs_folio_map.keys()) + list(si_folio_map.keys())))
     folio_results = []
 
-    for folio in all_folios:
-        bs_rec = bs_folio_map.get(folio)
-        si_rec = si_folio_map.get(folio)
-        folio_results.append(_recon_folio(bs_rec, si_rec, tolerance))
+    # Identify group bookings (bookings with more than 1 folio)
+    bs_bookings = defaultdict(list)
+    for r in bs_records:
+        if r.get("reservationId"):
+            bs_bookings[r["reservationId"]].append(r)
+    si_bookings = defaultdict(list)
+    for r in si_records:
+        if r.get("custom_booking_id"):
+            si_bookings[r["custom_booking_id"]].append(r)
+            
+    group_booking_ids = {bid for bid, list_b in bs_bookings.items() if len(list_b) > 1}
+    group_booking_ids.update({bid for bid, list_s in si_bookings.items() if len(list_s) > 1})
+
+    for fol in all_folios:
+        bs_rec = bs_folio_map.get(fol)
+        si_rec = si_folio_map.get(fol)
+        
+        booking_id = bs_rec.get("reservationId") if bs_rec else si_rec.get("custom_booking_id")
+        is_group_booking = booking_id in group_booking_ids
+
+        folio_results.append(_recon_folio(bs_rec, si_rec, tolerance, is_group_booking))
 
     # Level 1: Booking recon
     booking_result = _recon_bookings(bs_records, si_records, folio_results, tolerance)
@@ -520,8 +657,15 @@ def run_reconciliation(bs_data, si_data, tolerance=1.0):
     # Summary
     summary = _build_summary(folio_results, booking_result)
 
+    # Breakdowns
+    revenue_breakdown = _build_revenue_breakdown(bs_records, si_records)
+    collection_breakdown = _build_collection_breakdown(bs_records, si_records)
+
     return {
         "summary": summary,
+        "revenue_breakdown": revenue_breakdown,
+        "collection_breakdown": collection_breakdown,
         "bookings": booking_result,
         "folios": folio_results,
     }
+
