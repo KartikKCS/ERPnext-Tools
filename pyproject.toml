@@ -4,7 +4,7 @@ authors = [
     { name = "Katalystic Consulting", email = "jhalariagautam@gmail.com"}
 ]
 description = "Data reconciliation tools for ERPNext"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
