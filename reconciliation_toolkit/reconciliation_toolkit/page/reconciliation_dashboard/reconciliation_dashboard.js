@@ -11,6 +11,27 @@ function init_page(wrapper) {
         title: "Reconciliation Dashboard",
         single_column: true
     });
+
+    // ── AGGRESSIVE INLINE STYLE OVERRIDE ──
+    // ── AGGRESSIVE INLINE STYLE OVERRIDE ──
+    const breakContainer = setInterval(() => {
+        const app = document.getElementById('recon-app');
+        if (app) {
+            let parent = app.parentElement;
+            while (parent && parent.tagName !== 'BODY') {
+                parent.style.setProperty('max-width', '100%', 'important');
+                parent.style.setProperty('width', '100%', 'important');
+                if (parent.classList.contains('container')) {
+                    parent.classList.remove('container');
+                }
+                parent = parent.parentElement;
+            }
+        }
+    }, 50);
+
+    // Stop after 5 seconds when page is definitely rendered
+    setTimeout(() => clearInterval(breakContainer), 5000);
+
     page.body.append(`<div id="recon-app"></div>`);
     mount_vue_app();
 }
@@ -19,10 +40,10 @@ function init_page(wrapper) {
 
 function badge(status) {
     const m = {
-        matched:  ["✓ Matched",  "badge--ok"],
+        matched: ["✓ Matched", "badge--ok"],
         mismatch: ["✗ Mismatch", "badge--err"],
-        bs_only:  ["Missing in ERP", "badge--warn"],
-        no_data:  ["Unavailable",    "badge--muted"],
+        bs_only: ["Missing in ERP", "badge--warn"],
+        no_data: ["Unavailable", "badge--muted"],
     };
     const [label, cls] = m[status] || m.no_data;
     return `<span class="rc-badge ${cls}">${label}</span>`;
@@ -53,23 +74,23 @@ function pct(n, total) {
 /* ── Color Validation (block green/red/amber hue zones) ── */
 
 function _hexToHue(hex) {
-    const r = parseInt(hex.slice(1,3),16)/255;
-    const g = parseInt(hex.slice(3,5),16)/255;
-    const b = parseInt(hex.slice(5,7),16)/255;
-    const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
     if (d === 0) return 0;
     let h = 0;
-    if (max === r) h = ((g-b)/d + 6) % 6;
-    else if (max === g) h = (b-r)/d + 2;
-    else h = (r-g)/d + 4;
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
     return h * 60;
 }
 
 function _hexToSat(hex) {
-    const r = parseInt(hex.slice(1,3),16)/255;
-    const g = parseInt(hex.slice(3,5),16)/255;
-    const b = parseInt(hex.slice(5,7),16)/255;
-    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
     if (max === 0) return 0;
     return (max - min) / max;
 }
@@ -101,17 +122,17 @@ function _suggestContrast(hex) {
     if (target >= 80 && target <= 160) target = 270; // shift to purple
     // Convert HSL to hex (sat=80%, light=45% for vivid color)
     const s = 0.8, l = 0.45;
-    const c = (1 - Math.abs(2*l - 1)) * s;
-    const x = c * (1 - Math.abs(((target/60) % 2) - 1));
-    const m = l - c/2;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((target / 60) % 2) - 1));
+    const m = l - c / 2;
     let r1, g1, b1;
-    if (target < 60)       { r1=c; g1=x; b1=0; }
-    else if (target < 120) { r1=x; g1=c; b1=0; }
-    else if (target < 180) { r1=0; g1=c; b1=x; }
-    else if (target < 240) { r1=0; g1=x; b1=c; }
-    else if (target < 300) { r1=x; g1=0; b1=c; }
-    else                   { r1=c; g1=0; b1=x; }
-    const toHex = v => Math.round((v+m)*255).toString(16).padStart(2,'0');
+    if (target < 60) { r1 = c; g1 = x; b1 = 0; }
+    else if (target < 120) { r1 = x; g1 = c; b1 = 0; }
+    else if (target < 180) { r1 = 0; g1 = c; b1 = x; }
+    else if (target < 240) { r1 = 0; g1 = x; b1 = c; }
+    else if (target < 300) { r1 = x; g1 = 0; b1 = c; }
+    else { r1 = c; g1 = 0; b1 = x; }
+    const toHex = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
     return '#' + toHex(r1) + toHex(g1) + toHex(b1);
 }
 
@@ -153,7 +174,7 @@ function mount_vue_app() {
                 sel_booking: null,
                 page: 1,
                 perPage: 20,
-                
+
                 // Sidebar state
                 sidebarOpen: true,
 
@@ -170,16 +191,19 @@ function mount_vue_app() {
                 erpWarning: '',
                 defaultFromDate: today,
                 defaultToDate: today,
+                selectedCompany: "",
+                selectedFrom: "",
+                selectedTo: "",
             };
         },
 
         computed: {
-            s()       { return this.result?.summary || null; },
-            rev_bk()  { return this.result?.revenue_breakdown || null; },
-            col_bk()  { return this.result?.collection_breakdown || null; },
+            s() { return this.result?.summary || null; },
+            rev_bk() { return this.result?.revenue_breakdown || null; },
+            col_bk() { return this.result?.collection_breakdown || null; },
             bk_list() { return this.result?.bookings?.bookings || []; },
-            fo_all()  { return this.result?.folios || []; },
-            has_bk()  { return this.result?.bookings?.status !== "no_data"; },
+            fo_all() { return this.result?.folios || []; },
+            has_bk() { return this.result?.bookings?.status !== "no_data"; },
 
             rows() {
                 let source;
@@ -294,12 +318,12 @@ function mount_vue_app() {
             },
 
             // Color picker computeds
-            pmsStyle()    { return this.pmsColor ? { color: this.pmsColor } : {}; },
-            erpStyle()    { return this.erpColor ? { color: this.erpColor } : {}; },
-            pmsBorder()   { return this.pmsColor ? { borderLeftColor: this.pmsColor } : {}; },
-            erpBorder()   { return this.erpColor ? { borderLeftColor: this.erpColor } : {}; },
-            pmsHeadStyle(){ return this.pmsColor ? { color: this.pmsColor, fontWeight: 700 } : {}; },
-            erpHeadStyle(){ return this.erpColor ? { color: this.erpColor, fontWeight: 700 } : {}; },
+            pmsStyle() { return this.pmsColor ? { color: this.pmsColor } : {}; },
+            erpStyle() { return this.erpColor ? { color: this.erpColor } : {}; },
+            pmsBorder() { return this.pmsColor ? { borderLeftColor: this.pmsColor } : {}; },
+            erpBorder() { return this.erpColor ? { borderLeftColor: this.erpColor } : {}; },
+            pmsHeadStyle() { return this.pmsColor ? { color: this.pmsColor, fontWeight: 700 } : {}; },
+            erpHeadStyle() { return this.erpColor ? { color: this.erpColor, fontWeight: 700 } : {}; },
 
             pmsInputColor() { return this.pmsColor || '#2563eb'; },
             erpInputColor() { return this.erpColor || '#ea580c'; },
@@ -314,6 +338,10 @@ function mount_vue_app() {
                     frappe.msgprint("Enter from date, to date, and company.");
                     return;
                 }
+                this.selectedCompany = company;
+                this.selectedFrom = fromDate;
+                this.selectedTo = toDate;
+
                 this.loading = true;
                 this.result = null;
                 this.expanded = null;
@@ -349,10 +377,10 @@ function mount_vue_app() {
             },
 
             setFilter(f) { this.filter = f; this.page = 1; },
-            setView(v)   { this.view = v; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
+            setView(v) { this.view = v; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
             drillBooking(id) { this.sel_booking = id; this.view = "folios"; this.expanded = null; this.page = 1; this.filter = "all"; },
-            toggleDetail(f)  { this.expanded = this.expanded === f ? null : f; },
-            goBack()         { this.sel_booking = null; this.view = "group_bookings"; this.expanded = null; },
+            toggleDetail(f) { this.expanded = this.expanded === f ? null : f; },
+            goBack() { this.sel_booking = null; this.view = "group_bookings"; this.expanded = null; },
 
             copyDispute(f) {
                 const a = this.amt;
@@ -424,7 +452,7 @@ function mount_vue_app() {
                 ln.push(HR);
                 const text = ln.join('\n');
                 navigator.clipboard.writeText(text).then(() => {
-                    frappe.show_alert({message: 'Dispute note copied', indicator: 'green'});
+                    frappe.show_alert({ message: 'Dispute note copied', indicator: 'green' });
                 });
             },
             copyIdentifier(value, label, event) {
@@ -433,13 +461,13 @@ function mount_vue_app() {
                     event.preventDefault();
                 }
                 navigator.clipboard.writeText(value).then(() => {
-                    frappe.show_alert({message: `${label} copied`, indicator: 'green'});
+                    frappe.show_alert({ message: `${label} copied`, indicator: 'green' });
                 });
             },
 
             // Sort/filter panel methods
             toggleSortPanel() { this.showSortPanel = !this.showSortPanel; },
-            closeSortPanel()  { this.showSortPanel = false; },
+            closeSortPanel() { this.showSortPanel = false; },
             clearAllFilters() {
                 this.sortBy = 'none';
                 this.filterMinDiff = 0;
@@ -504,6 +532,22 @@ function mount_vue_app() {
                     this.showSettings = false;
                 }
             },
+            formatDate(d) {
+                if (!d) return "";
+                if (typeof frappe !== 'undefined' && frappe.datetime) {
+                    return frappe.datetime.str_to_user(d);
+                }
+                return d;
+            },
+            getFolioIcon(f) {
+                if (f.is_group_booking) {
+                    // FontAwesome 'Users' (3 people)
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" width="16" height="16" fill="currentColor"><path d="M144 160c-44.2 0-80-35.8-80-80S99.8 0 144 0s80 35.8 80 80-35.8 80-80 80zm352 0c-44.2 0-80-35.8-80-80s35.8-80 80-80 80 35.8 80 80-35.8 80-80 80zM320 256c-61.9 0-112-50.1-112-112S258.1 32 320 32s112 50.1 112 112-50.1 112-112 112zm-166.5 32H48.4C21.7 288 0 309.7 0 336.4V384c0 17.7 14.3 32 32 32h115.5c-4.4-10-6.9-21-6.9-32v-64c0-10.9 2.5-21 6.9-32zm438.1 0h-105.1c4.4 11 6.9 21.1 6.9 32v64c0 11-2.5 22-6.9 32H608c17.7 0 32-14.3 32-32v-47.6c0-26.7-21.7-48.4-48.4-48.4zM432 320H208c-35.3 0-64 28.7-64 64v64c0 35.3 28.7 64 64 64h224c35.3 0 64-28.7 64-64v-64c0-35.3-28.7-64-64-64z"/></svg>';
+                } else {
+                    // FontAwesome 'User' (1 person)
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="16" height="16" fill="currentColor"><path d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm89.6 32h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48v-41.6c0-74.2-60.2-134.4-134.4-134.4z"/></svg>';
+                }
+            },
 
             badge, amt, diff, pct, isIssueDiff, statusIcon,
         },
@@ -553,15 +597,15 @@ function mount_vue_app() {
                 if (!fSidebar.id) fSidebar.id = 'frappe-global-sidebar';
                 this.sidebarTarget = '#' + fSidebar.id;
             }
-            
+
             // Apply resize CSS to the outermost layout column so Frappe honors the drag width
             const sideSection = document.querySelector('.layout-side-section');
             if (sideSection) {
                 sideSection.style.resize = 'horizontal';
                 sideSection.style.overflowY = 'auto';
-                sideSection.style.overflowX = 'hidden'; 
+                sideSection.style.overflowX = 'hidden';
                 sideSection.style.minWidth = '220px';
-                sideSection.style.maxWidth = '500px'; 
+                sideSection.style.maxWidth = '500px';
                 sideSection.style.paddingRight = '5px'; // room for resize handle
             }
             frappe.pages['reconciliation-dashboard'] = frappe.pages['reconciliation-dashboard'] || {};
@@ -657,8 +701,8 @@ function mount_vue_app() {
 
     <!-- ════════ MAIN CONTENT ════════ -->
     <div class="rc-main" style="flex:1; min-width:0;">
-        <div class="rc-bar" style="margin-bottom: 20px;">
-            <div class="rc-bar__l">
+        <div class="rc-bar" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+            <div class="rc-bar__l" style="display: flex; align-items: center;">
                 <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
@@ -669,9 +713,17 @@ function mount_vue_app() {
                     <button class="btn btn-xs" :class="view==='folios' ? 'btn-primary':'btn-default'"
                             @click="setView('folios')">Folios</button>
                 </template>
-                <span v-if="sel_booking" class="rc-crumb">{{ sel_booking }}</span>
+                <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
             </div>
-            <div class="rc-bar__r">
+            
+            <div class="rc-bar__c" v-if="result" style="text-align: center; flex: 1; margin: 0 16px;">
+                <h4 style="margin: 0 0 2px 0; font-size: 18px; font-weight: 700; color: var(--heading-color);">{{ selectedCompany }}</h4>
+                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
+                    {{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}
+                </div>
+            </div>
+
+            <div class="rc-bar__r" style="display: flex; justify-content: flex-end; align-items: center;">
                 <div style="width: 280px; margin-right: 12px;" v-if="result">
                     <input class="form-control input-xs rc-search" placeholder="Search invoices/guests…" v-model="search" style="width:100%" />
                 </div>
@@ -732,8 +784,8 @@ function mount_vue_app() {
                     <span class="rc-stat__n">{{ s.match_percent }}%</span>
                     <span class="rc-stat__l">Overall Match</span>
                 </div>
-                <div class="rc-stat" :class="s.levels.folio.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-                    <span class="rc-stat__n">{{ s.levels.folio.mismatched }}</span>
+                <div class="rc-stat" :class="s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
                     <span class="rc-stat__l">Amount Issues</span>
                 </div>
                 <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
@@ -752,15 +804,15 @@ function mount_vue_app() {
                 <div class="rc-breakdown-card">
                     <div class="rc-breakdown-card__hdr">
                         <span>Revenue Breakdown</span>
-                        <span class="rc-breakdown-card__date">Active Date Range</span>
+                        <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
                     </div>
                     <table class="table rc-bk-tbl">
                         <thead>
                             <tr>
                                 <th>Category</th>
-                                <th>PMS Ct</th>
+                                <th>PMS</th>
                                 <th :style="pmsHeadStyle">PMS Amt</th>
-                                <th>ERP Ct</th>
+                                <th>ERP</th>
                                 <th :style="erpHeadStyle">ERP Amt</th>
                                 <th>Diff</th>
                             </tr>
@@ -790,15 +842,15 @@ function mount_vue_app() {
                 <div class="rc-breakdown-card">
                     <div class="rc-breakdown-card__hdr">
                         <span>Collection Breakdown</span>
-                        <span class="rc-breakdown-card__date">Active Date Range</span>
+                        <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
                     </div>
                     <table class="table rc-bk-tbl">
                         <thead>
                             <tr>
                                 <th>Category</th>
-                                <th>PMS Ct</th>
+                                <th>PMS</th>
                                 <th :style="pmsHeadStyle">PMS Amt</th>
-                                <th>ERP Ct</th>
+                                <th>ERP</th>
                                 <th :style="erpHeadStyle">ERP Amt</th>
                                 <th>Diff</th>
                             </tr>
@@ -868,7 +920,11 @@ function mount_vue_app() {
         <tr class="rc-clickrow"
             :class="{'rc-row-err':f.status==='mismatch','rc-row-warn':f.status==='bs_only'}"
             @click="toggleDetail(f.folio)">
-            <td class="rc-caret">{{ expanded===f.folio?'▾':'▸' }}</td>
+            <td class="rc-caret" style="width: 32px; text-align: center;">
+                <div v-html="getFolioIcon(f)" 
+                     :style="{ transform: expanded === f.folio ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }">
+                </div>
+            </td>
             <td class="rc-id">
                 <span>{{ f.folio }}</span>
                 <button class="rc-copy-badge" @click.stop="copyIdentifier(f.folio, 'Folio', $event)">Copy</button>
@@ -930,15 +986,15 @@ function mount_vue_app() {
                                 </tbody>
                             </table>
                             
-                            <div style="display: flex; gap: 12px; font-size: 11px;">
-                                <div class="rc-breakdown-box" :style="pmsBorder">
+                            <div style="display: flex; gap: 24px; font-size: 11px;">
+                                <div class="rc-breakdown-box" :style="pmsBorder" style="flex: 1;">
                                     <strong class="rc-breakdown-box__label" :style="pmsColor ? {color: pmsColor} : {}">PMS Breakdown</strong>
                                     <div v-for="b in f.revenue.bs_breakdown" :key="b.category" style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                                         <span>{{ b.category }}</span><span class="r">{{ amt(b.amount) }}</span>
                                     </div>
                                     <div v-if="!f.revenue.bs_breakdown?.length" style="color:var(--text-muted)">No data</div>
                                 </div>
-                                <div class="rc-breakdown-box" :style="erpBorder">
+                                <div class="rc-breakdown-box" :style="erpBorder" style="flex: 1;">
                                     <strong class="rc-breakdown-box__label" :style="erpColor ? {color: erpColor} : {}">ERP Sub-Accounts</strong>
                                     <div v-for="b in f.revenue.si_breakdown" :key="b.category" style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                                         <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;" :title="b.category">{{ b.category }}</span><span class="r">{{ amt(b.amount) }}</span>
