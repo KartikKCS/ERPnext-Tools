@@ -132,6 +132,7 @@ def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False):
         "folio": bs_rec.get("folioNo") if bs_rec else si_rec.get("custom_folio_number"),
         "status": STATUS_MATCHED,
         "is_group_booking": is_group_booking,
+        "is_group_booking": is_group_booking,
     }
 
     # -- Folio-level (L2) amounts --
@@ -555,6 +556,7 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
 def _build_summary(folio_results, booking_result):
     """Build top-level summary KPIs."""
     folio_counts = {"matched": 0, "mismatched": 0, "amount_mismatched": 0, "bs_only": 0, "si_only": 0}
+    folio_counts = {"matched": 0, "mismatched": 0, "amount_mismatched": 0, "bs_only": 0, "si_only": 0}
     revenue_counts = {"matched": 0, "mismatched": 0}
     payment_counts = {"matched": 0, "mismatched": 0}
     invoice_counts = {"matched": 0, "mismatched": 0, "no_data": 0}
@@ -569,6 +571,10 @@ def _build_summary(folio_results, booking_result):
             folio_counts["bs_only"] += 1
         elif st == STATUS_SI_ONLY:
             folio_counts["si_only"] += 1
+
+        # Count actual amount-level mismatches separately (only when both sides exist)
+        if st not in (STATUS_BS_ONLY, STATUS_SI_ONLY) and f.get("amount_match") is False:
+            folio_counts["amount_mismatched"] += 1
 
         # Count actual amount-level mismatches separately (only when both sides exist)
         if st not in (STATUS_BS_ONLY, STATUS_SI_ONLY) and f.get("amount_match") is False:

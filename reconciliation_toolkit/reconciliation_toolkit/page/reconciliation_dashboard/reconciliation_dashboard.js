@@ -194,6 +194,9 @@ function mount_vue_app() {
                 selectedCompany: "",
                 selectedFrom: "",
                 selectedTo: "",
+                selectedCompany: "",
+                selectedFrom: "",
+                selectedTo: "",
             };
         },
 
@@ -548,6 +551,22 @@ function mount_vue_app() {
                     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="16" height="16" fill="currentColor"><path d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm89.6 32h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48v-41.6c0-74.2-60.2-134.4-134.4-134.4z"/></svg>';
                 }
             },
+            formatDate(d) {
+                if (!d) return "";
+                if (typeof frappe !== 'undefined' && frappe.datetime) {
+                    return frappe.datetime.str_to_user(d);
+                }
+                return d;
+            },
+            getFolioIcon(f) {
+                if (f.is_group_booking) {
+                    // FontAwesome 'Users' (3 people)
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" width="16" height="16" fill="currentColor"><path d="M144 160c-44.2 0-80-35.8-80-80S99.8 0 144 0s80 35.8 80 80-35.8 80-80 80zm352 0c-44.2 0-80-35.8-80-80s35.8-80 80-80 80 35.8 80 80-35.8 80-80 80zM320 256c-61.9 0-112-50.1-112-112S258.1 32 320 32s112 50.1 112 112-50.1 112-112 112zm-166.5 32H48.4C21.7 288 0 309.7 0 336.4V384c0 17.7 14.3 32 32 32h115.5c-4.4-10-6.9-21-6.9-32v-64c0-10.9 2.5-21 6.9-32zm438.1 0h-105.1c4.4 11 6.9 21.1 6.9 32v64c0 11-2.5 22-6.9 32H608c17.7 0 32-14.3 32-32v-47.6c0-26.7-21.7-48.4-48.4-48.4zM432 320H208c-35.3 0-64 28.7-64 64v64c0 35.3 28.7 64 64 64h224c35.3 0 64-28.7 64-64v-64c0-35.3-28.7-64-64-64z"/></svg>';
+                } else {
+                    // FontAwesome 'User' (1 person)
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="16" height="16" fill="currentColor"><path d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm89.6 32h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48v-41.6c0-74.2-60.2-134.4-134.4-134.4z"/></svg>';
+                }
+            },
 
             badge, amt, diff, pct, isIssueDiff, statusIcon,
         },
@@ -703,6 +722,8 @@ function mount_vue_app() {
     <div class="rc-main" style="flex:1; min-width:0;">
         <div class="rc-bar" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
             <div class="rc-bar__l" style="display: flex; align-items: center;">
+        <div class="rc-bar" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+            <div class="rc-bar__l" style="display: flex; align-items: center;">
                 <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
@@ -714,7 +735,17 @@ function mount_vue_app() {
                             @click="setView('folios')">Folios</button>
                 </template>
                 <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
+                <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
             </div>
+            
+            <div class="rc-bar__c" v-if="result" style="text-align: center; flex: 1; margin: 0 16px;">
+                <h4 style="margin: 0 0 2px 0; font-size: 18px; font-weight: 700; color: var(--heading-color);">{{ selectedCompany }}</h4>
+                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
+                    {{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}
+                </div>
+            </div>
+
+            <div class="rc-bar__r" style="display: flex; justify-content: flex-end; align-items: center;">
             
             <div class="rc-bar__c" v-if="result" style="text-align: center; flex: 1; margin: 0 16px;">
                 <h4 style="margin: 0 0 2px 0; font-size: 18px; font-weight: 700; color: var(--heading-color);">{{ selectedCompany }}</h4>
@@ -786,6 +817,8 @@ function mount_vue_app() {
                 </div>
                 <div class="rc-stat" :class="s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
                     <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
+                <div class="rc-stat" :class="s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
                     <span class="rc-stat__l">Amount Issues</span>
                 </div>
                 <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
@@ -805,13 +838,16 @@ function mount_vue_app() {
                     <div class="rc-breakdown-card__hdr">
                         <span>Revenue Breakdown</span>
                         <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
+                        <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
                     </div>
                     <table class="table rc-bk-tbl">
                         <thead>
                             <tr>
                                 <th>Category</th>
                                 <th>PMS</th>
+                                <th>PMS</th>
                                 <th :style="pmsHeadStyle">PMS Amt</th>
+                                <th>ERP</th>
                                 <th>ERP</th>
                                 <th :style="erpHeadStyle">ERP Amt</th>
                                 <th>Diff</th>
@@ -843,13 +879,16 @@ function mount_vue_app() {
                     <div class="rc-breakdown-card__hdr">
                         <span>Collection Breakdown</span>
                         <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
+                        <span class="rc-breakdown-card__date">{{ formatDate(selectedFrom) }} — {{ formatDate(selectedTo) }}</span>
                     </div>
                     <table class="table rc-bk-tbl">
                         <thead>
                             <tr>
                                 <th>Category</th>
                                 <th>PMS</th>
+                                <th>PMS</th>
                                 <th :style="pmsHeadStyle">PMS Amt</th>
+                                <th>ERP</th>
                                 <th>ERP</th>
                                 <th :style="erpHeadStyle">ERP Amt</th>
                                 <th>Diff</th>
@@ -925,6 +964,11 @@ function mount_vue_app() {
                      :style="{ transform: expanded === f.folio ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }">
                 </div>
             </td>
+            <td class="rc-caret" style="width: 32px; text-align: center;">
+                <div v-html="getFolioIcon(f)" 
+                     :style="{ transform: expanded === f.folio ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }">
+                </div>
+            </td>
             <td class="rc-id">
                 <span>{{ f.folio }}</span>
                 <button class="rc-copy-badge" @click.stop="copyIdentifier(f.folio, 'Folio', $event)">Copy</button>
@@ -988,12 +1032,15 @@ function mount_vue_app() {
                             
                             <div style="display: flex; gap: 24px; font-size: 11px;">
                                 <div class="rc-breakdown-box" :style="pmsBorder" style="flex: 1;">
+                            <div style="display: flex; gap: 24px; font-size: 11px;">
+                                <div class="rc-breakdown-box" :style="pmsBorder" style="flex: 1;">
                                     <strong class="rc-breakdown-box__label" :style="pmsColor ? {color: pmsColor} : {}">PMS Breakdown</strong>
                                     <div v-for="b in f.revenue.bs_breakdown" :key="b.category" style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                                         <span>{{ b.category }}</span><span class="r">{{ amt(b.amount) }}</span>
                                     </div>
                                     <div v-if="!f.revenue.bs_breakdown?.length" style="color:var(--text-muted)">No data</div>
                                 </div>
+                                <div class="rc-breakdown-box" :style="erpBorder" style="flex: 1;">
                                 <div class="rc-breakdown-box" :style="erpBorder" style="flex: 1;">
                                     <strong class="rc-breakdown-box__label" :style="erpColor ? {color: erpColor} : {}">ERP Sub-Accounts</strong>
                                     <div v-for="b in f.revenue.si_breakdown" :key="b.category" style="display: flex; justify-content: space-between; margin-bottom: 3px;">
