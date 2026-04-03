@@ -763,8 +763,8 @@ function mount_vue_app() {
                     <span class="rc-stat__n">{{ s.match_percent }}%</span>
                     <span class="rc-stat__l">Overall Match</span>
                 </div>
-                <div class="rc-stat" :class="s.levels.folio.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
-                    <span class="rc-stat__n">{{ s.levels.folio.mismatched }}</span>
+                <div class="rc-stat" :class="s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                    <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
                     <span class="rc-stat__l">Amount Issues</span>
                 </div>
                 <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
