@@ -997,3 +997,20 @@
     background: var(--primary);
     color: #fff;
 }
+
+/* ── Tab Buttons with Icons ── */
+.rc-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 10px;
+}
+
+.rc-tab-btn svg {
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.rc-tab-btn.btn-primary svg {
+    opacity: 1;
+}
