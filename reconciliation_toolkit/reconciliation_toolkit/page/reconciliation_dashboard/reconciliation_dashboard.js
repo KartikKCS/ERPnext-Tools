@@ -166,7 +166,7 @@ function mount_vue_app() {
                 result: null,
                 loading: false,
                 companyOptions: [],
-                view: "group_bookings",
+                view: "folios",
                 search: "",
                 filter: "all",
                 errorsOnly: false,
@@ -205,12 +205,21 @@ function mount_vue_app() {
             fo_all() { return this.result?.folios || []; },
             has_bk() { return this.result?.bookings?.status !== "no_data"; },
 
+            isBookingView() {
+                return ['group_bookings', 'individual_bookings', 'tpa_bookings', 'company_bookings'].includes(this.view);
+            },
+
             rows() {
                 let source;
-                if (this.view === "group_bookings") {
-                    source = this.bk_list.filter(b => b.booking_type === "Group");
-                } else if (this.view === "individual_bookings") {
-                    source = this.bk_list.filter(b => b.booking_type !== "Group");
+                const tagViewMap = {
+                    group_bookings: 'Group',
+                    individual_bookings: 'Individual',
+                    tpa_bookings: 'TPA',
+                    company_bookings: 'Company',
+                };
+                const tagFilter = tagViewMap[this.view];
+                if (tagFilter) {
+                    source = this.bk_list.filter(b => (b.booking_tags || []).includes(tagFilter));
                 } else {
                     source = this.sel_booking
                         ? (this.bk_list.find(b => b.booking_id === this.sel_booking)?.folios || [])
@@ -242,7 +251,7 @@ function mount_vue_app() {
                 if (this.search) {
                     const q = this.search.toLowerCase();
                     items = items.filter(x => {
-                        const fields = (this.view === "group_bookings" || this.view === "individual_bookings")
+                        const fields = this.isBookingView
                             ? [x.booking_id, x.bs_guest]
                             : [x.folio, x.bs_guest_name, x.si_customer];
                         return fields.some(f => f && f.toLowerCase().includes(q));
@@ -255,7 +264,7 @@ function mount_vue_app() {
                 }
 
                 // Source filter (bookings view)
-                if (this.filterSources.length > 0 && (this.view === 'group_bookings' || this.view === 'individual_bookings')) {
+                if (this.filterSources.length > 0 && this.isBookingView) {
                     items = items.filter(x => this.filterSources.includes(x.bs_source || '—'));
                 }
 
@@ -346,7 +355,7 @@ function mount_vue_app() {
                 this.result = null;
                 this.expanded = null;
                 this.sel_booking = null;
-                this.view = "group_bookings";
+                this.view = "folios";
                 this.filter = "all";
                 this.search = "";
                 this.errorsOnly = false;
@@ -376,11 +385,11 @@ function mount_vue_app() {
                 });
             },
 
-            setFilter(f) { this.filter = f; this.page = 1; },
+            setFilter(f) { this.filter = f; this.page = 1; if (f === 'all') this.filterMismatchType = 'all'; },
             setView(v) { this.view = v; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
             drillBooking(id) { this.sel_booking = id; this.view = "folios"; this.expanded = null; this.page = 1; this.filter = "all"; },
             toggleDetail(f) { this.expanded = this.expanded === f ? null : f; },
-            goBack() { this.sel_booking = null; this.view = "group_bookings"; this.expanded = null; },
+            goBack() { this.sel_booking = null; this.view = "folios"; this.expanded = null; },
 
             copyDispute(f) {
                 const a = this.amt;
@@ -463,6 +472,22 @@ function mount_vue_app() {
                 navigator.clipboard.writeText(value).then(() => {
                     frappe.show_alert({ message: `${label} copied`, indicator: 'green' });
                 });
+            },
+
+            // KPI card click → toggle issue-type filter
+            filterByIssueType(type) {
+                // If already filtering by this type, toggle off
+                if (this.view === 'folios' && this.filterMismatchType === type && this.filter === 'mismatch') {
+                    this.filterMismatchType = 'all';
+                    this.filter = 'all';
+                    return;
+                }
+                this.view = 'folios';
+                this.sel_booking = null;
+                this.filter = 'mismatch';
+                this.filterMismatchType = type;
+                this.expanded = null;
+                this.page = 1;
             },
 
             // Sort/filter panel methods
@@ -661,7 +686,7 @@ function mount_vue_app() {
                     </div>
                 </div>
 
-                <div class="rc-sidebar__section" v-if="(view==='group_bookings' || view==='individual_bookings') && uniqueSources.length > 0">
+                <div class="rc-sidebar__section" v-if="isBookingView && uniqueSources.length > 0">
                     <div class="rc-sidebar__label">Sources</div>
                     <div style="display:flex; flex-direction:column; gap:6px;">
                         <label v-for="src in uniqueSources" :key="src" style="margin:0; font-size:12px; font-weight:500; cursor:pointer; display:flex; align-items:center;">
@@ -707,9 +732,13 @@ function mount_vue_app() {
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
                     <button class="btn btn-xs" :class="view==='group_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('group_bookings')" :disabled="!has_bk">Group Bookings</button>
+                            @click="setView('group_bookings')" :disabled="!has_bk">Group</button>
                     <button class="btn btn-xs" :class="view==='individual_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('individual_bookings')" :disabled="!has_bk">Individual Bookings</button>
+                            @click="setView('individual_bookings')" :disabled="!has_bk">Individual</button>
+                    <button class="btn btn-xs" :class="view==='tpa_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('tpa_bookings')" :disabled="!has_bk">TPA</button>
+                    <button class="btn btn-xs" :class="view==='company_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('company_bookings')" :disabled="!has_bk">Company</button>
                     <button class="btn btn-xs" :class="view==='folios' ? 'btn-primary':'btn-default'"
                             @click="setView('folios')">Folios</button>
                 </template>
@@ -777,29 +806,36 @@ function mount_vue_app() {
             <!-- ════════ OVERVIEW STRIP ════════ -->
             <div class="rc-overview">
                 <div class="rc-stat rc-stat--accent">
-                    <span class="rc-stat__n">{{ s.total_folios }}</span>
-                    <span class="rc-stat__l">Invoices</span>
+                    <div style="display:flex; justify-content:center; align-items:baseline; gap:10px;">
+                        <span class="rc-stat__n" :style="pmsStyle">{{ s.pms_folio_count }}</span>
+                        <span style="color:var(--text-muted); font-size:18px; font-weight:200;">|</span>
+                        <span class="rc-stat__n" :style="erpStyle">{{ s.erp_folio_count }}</span>
+                    </div>
+                    <div style="display:flex; justify-content:center; gap:20px;">
+                        <span class="rc-stat__l" :style="pmsStyle">PMS</span>
+                        <span class="rc-stat__l" :style="erpStyle">ERP</span>
+                    </div>
                 </div>
                 <div class="rc-stat" :class="s.match_percent >= 90 ? 'rc-stat--ok' : 'rc-stat--err'">
                     <span class="rc-stat__n">{{ s.match_percent }}%</span>
                     <span class="rc-stat__l">Overall Match</span>
                 </div>
-                <div class="rc-stat" :class="s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='amount' && filter==='mismatch'}]" @click="filterByIssueType('amount')">
                     <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
                     <span class="rc-stat__l">Amount Issues</span>
                 </div>
-                <div class="rc-stat" :class="s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='revenue' && filter==='mismatch'}]" @click="filterByIssueType('revenue')">
                     <span class="rc-stat__n">{{ s.levels.revenue.mismatched }}</span>
                     <span class="rc-stat__l">Revenue Issues</span>
                 </div>
-                <div class="rc-stat" :class="s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok'">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='payment' && filter==='mismatch'}]" @click="filterByIssueType('payment')">
                     <span class="rc-stat__n">{{ s.levels.payment.mismatched }}</span>
                     <span class="rc-stat__l">Payment Issues</span>
                 </div>
             </div>
 
             <!-- ════════ BREAKDOWN PANELS ════════ -->
-            <div class="rc-breakdown-panel" v-if="rev_bk && col_bk && (view==='group_bookings' || view==='individual_bookings') && !sel_booking">
+            <div class="rc-breakdown-panel" v-if="rev_bk && col_bk && isBookingView && !sel_booking">
                 <!-- Revenue Breakdown -->
                 <div class="rc-breakdown-card">
                     <div class="rc-breakdown-card__hdr">
@@ -878,11 +914,11 @@ function mount_vue_app() {
             </div>
 
 <!-- ════════ BOOKING TABLE ════════ -->
-<div v-if="view==='group_bookings' || view==='individual_bookings'" class="rc-card" style="margin-bottom: 30px">
+<div v-if="isBookingView" class="rc-card" style="margin-bottom: 30px">
     <table class="table rc-tbl">
         <thead><tr>
             <th>Booking</th><th>Guest</th><th>Source</th><th class="r">Folios</th>
-            <th class="r" :style="pmsHeadStyle">PMS Total</th><th class="r" :style="erpHeadStyle">ERP Total</th><th class="r">Diff</th><th>Status</th>
+            <th class="r" :style="pmsHeadStyle">PMS Total</th><th class="r" :style="erpHeadStyle">ERP Total</th><th class="r">Diff</th><th>Tags</th><th>Status</th>
         </tr></thead>
         <tbody>
         <tr v-for="b in paged" :key="b.booking_id" class="rc-clickrow"
@@ -900,9 +936,14 @@ function mount_vue_app() {
             <td class="r" :style="pmsStyle">{{ amt(b.bs_total) }}</td>
             <td class="r" :style="erpStyle">{{ amt(b.si_total) }}</td>
             <td class="r" :class="isIssueDiff(b.difference)?'rc-diff':''">{{ diff(b.difference) }}</td>
+            <td>
+                <div style="display:flex; gap:3px; flex-wrap:wrap;">
+                    <span v-for="tag in (b.booking_tags || [])" :key="tag" class="rc-tag" :class="'rc-tag--' + tag.toLowerCase()">{{ tag }}</span>
+                </div>
+            </td>
             <td v-html="badge(b.status)"></td>
         </tr>
-        <tr v-if="!paged.length"><td colspan="8" class="rc-empty-row">No records match your filters.</td></tr>
+        <tr v-if="!paged.length"><td colspan="9" class="rc-empty-row">No records match your filters.</td></tr>
         </tbody>
     </table>
 </div>
@@ -911,7 +952,7 @@ function mount_vue_app() {
 <div v-if="view==='folios'" class="rc-card" style="margin-bottom: 30px">
     <table class="table rc-tbl">
         <thead><tr>
-            <th style="width:24px"></th><th>Folio</th><th>Guest</th><th>Room</th>
+            <th style="width:24px"></th><th>Folio</th><th>Guest</th><th>Room</th><th>Tags</th>
             <th class="r" :style="pmsHeadStyle">PMS Amount</th><th class="r" :style="erpHeadStyle">ERP Amount</th><th class="r">Diff</th>
             <th>Checks</th><th>Status</th>
         </tr></thead>
@@ -931,6 +972,13 @@ function mount_vue_app() {
             </td>
             <td>{{ f.bs_guest_name || f.si_customer || '—' }}</td>
             <td>{{ f.bs_room || '—' }}</td>
+            <td>
+                <div style="display:flex; gap:3px; flex-wrap:wrap;">
+                    <template v-for="tag in (f.booking_tags || [])" :key="tag">
+                        <span v-if="tag !== 'Individual'" class="rc-tag" :class="'rc-tag--' + tag.toLowerCase()">{{ tag }}</span>
+                    </template>
+                </div>
+            </td>
             <td class="r" :style="pmsStyle">{{ amt(f.bs_grand_total) }}</td>
             <td class="r" :style="erpStyle">{{ amt(f.si_grand_total) }}</td>
             <td class="r" :class="isIssueDiff(f.difference)?'rc-diff':''">{{ diff(f.difference) }}</td>
@@ -946,7 +994,7 @@ function mount_vue_app() {
 
         <!-- ══ DETAIL PANEL ══ -->
         <tr v-if="expanded===f.folio && f.revenue !== null" class="rc-detail-row">
-            <td colspan="9" class="rc-detail-cell">
+            <td colspan="10" class="rc-detail-cell">
                 <div style="text-align: right; margin-bottom: 8px;">
                     <button class="btn btn-xs btn-default" @click="copyDispute(f)">📋 Copy Dispute Note</button>
                 </div>
@@ -1041,7 +1089,7 @@ function mount_vue_app() {
             </td>
         </tr>
         </template>
-        <tr v-if="!paged.length"><td colspan="9" class="rc-empty-row">No records match your filters.</td></tr>
+        <tr v-if="!paged.length"><td colspan="10" class="rc-empty-row">No records match your filters.</td></tr>
         </tbody>
     </table>
 </div>
