@@ -565,13 +565,18 @@ function mount_vue_app() {
                 return d;
             },
             getFolioIcon(f) {
-                if (f.is_group_booking) {
-                    // FontAwesome 'Users' (3 people)
-                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" width="16" height="16" fill="currentColor"><path d="M144 160c-44.2 0-80-35.8-80-80S99.8 0 144 0s80 35.8 80 80-35.8 80-80 80zm352 0c-44.2 0-80-35.8-80-80s35.8-80 80-80 80 35.8 80 80-35.8 80-80 80zM320 256c-61.9 0-112-50.1-112-112S258.1 32 320 32s112 50.1 112 112-50.1 112-112 112zm-166.5 32H48.4C21.7 288 0 309.7 0 336.4V384c0 17.7 14.3 32 32 32h115.5c-4.4-10-6.9-21-6.9-32v-64c0-10.9 2.5-21 6.9-32zm438.1 0h-105.1c4.4 11 6.9 21.1 6.9 32v64c0 11-2.5 22-6.9 32H608c17.7 0 32-14.3 32-32v-47.6c0-26.7-21.7-48.4-48.4-48.4zM432 320H208c-35.3 0-64 28.7-64 64v64c0 35.3 28.7 64 64 64h224c35.3 0 64-28.7 64-64v-64c0-35.3-28.7-64-64-64z"/></svg>';
-                } else {
-                    // FontAwesome 'User' (1 person)
-                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="16" height="16" fill="currentColor"><path d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm89.6 32h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48v-41.6c0-74.2-60.2-134.4-134.4-134.4z"/></svg>';
+                const tags = f.booking_tags || [];
+                // Priority: TPA > Company > Group > Individual
+                if (tags.includes('TPA')) {
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>';
                 }
+                if (tags.includes('Company')) {
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>';
+                }
+                if (tags.includes('Group')) {
+                    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
+                }
+                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
             },
 
             badge, amt, diff, pct, isIssueDiff, statusIcon,
@@ -731,16 +736,26 @@ function mount_vue_app() {
                 <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
-                    <button class="btn btn-xs" :class="view==='group_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('group_bookings')" :disabled="!has_bk">Group</button>
-                    <button class="btn btn-xs" :class="view==='individual_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('individual_bookings')" :disabled="!has_bk">Individual</button>
-                    <button class="btn btn-xs" :class="view==='tpa_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('tpa_bookings')" :disabled="!has_bk">TPA</button>
-                    <button class="btn btn-xs" :class="view==='company_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('company_bookings')" :disabled="!has_bk">Company</button>
-                    <button class="btn btn-xs" :class="view==='folios' ? 'btn-primary':'btn-default'"
-                            @click="setView('folios')">Folios</button>
+                    <button class="btn btn-xs rc-tab-btn" :class="view==='group_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('group_bookings')" :disabled="!has_bk">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                        Group</button>
+                    <button class="btn btn-xs rc-tab-btn" :class="view==='individual_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('individual_bookings')" :disabled="!has_bk">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                        Individual</button>
+                    <button class="btn btn-xs rc-tab-btn" :class="view==='tpa_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('tpa_bookings')" :disabled="!has_bk">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+                        TPA</button>
+                    <button class="btn btn-xs rc-tab-btn" :class="view==='company_bookings' ? 'btn-primary':'btn-default'"
+                            @click="setView('company_bookings')" :disabled="!has_bk">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
+                        Company</button>
+                    <button class="btn btn-xs rc-tab-btn" :class="view==='folios' ? 'btn-primary':'btn-default'"
+                            @click="setView('folios')">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z"/></svg>
+                        Folios</button>
                 </template>
                 <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
             </div>
