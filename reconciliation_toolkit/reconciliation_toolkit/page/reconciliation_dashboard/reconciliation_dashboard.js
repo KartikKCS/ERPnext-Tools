@@ -156,7 +156,7 @@ function statusIcon(type, isOk) {
 function mount_vue_app() {
     const { createApp } = Vue;
 
-    createApp({
+    const app = createApp({
         data() {
             const today = frappe.datetime.get_today();
             return {
@@ -166,7 +166,8 @@ function mount_vue_app() {
                 result: null,
                 loading: false,
                 companyOptions: [],
-                view: "folios",
+                entityType: "folio",
+                activeTab: "all",
                 search: "",
                 filter: "all",
                 errorsOnly: false,
@@ -206,24 +207,42 @@ function mount_vue_app() {
             has_bk() { return this.result?.bookings?.status !== "no_data"; },
 
             isBookingView() {
-                return ['group_bookings', 'individual_bookings', 'tpa_bookings', 'company_bookings'].includes(this.view);
+                return this.entityType === 'reservation';
             },
 
             rows() {
                 let source;
-                const tagViewMap = {
-                    group_bookings: 'Group',
-                    individual_bookings: 'Individual',
-                    tpa_bookings: 'TPA',
-                    company_bookings: 'Company',
-                };
-                const tagFilter = tagViewMap[this.view];
-                if (tagFilter) {
-                    source = this.bk_list.filter(b => (b.booking_tags || []).includes(tagFilter));
+                // If digging into a selected booking, force the view to those specific folios
+                if (this.sel_booking) {
+                    source = this.bk_list.find(b => b.booking_id === this.sel_booking)?.folios || [];
                 } else {
-                    source = this.sel_booking
-                        ? (this.bk_list.find(b => b.booking_id === this.sel_booking)?.folios || [])
-                        : this.fo_all;
+                    // Otherwise pick base source by entityType
+                    source = this.entityType === 'reservation' ? this.bk_list : this.fo_all;
+                    
+                    // Filter by activeTab if it's not 'all'
+                    if (this.activeTab !== 'all') {
+                        let tagMappings = {
+                            'group': 'Group',
+                            'ind': 'Individual',
+                            'tpa': 'TPA',
+                            'company': 'Company'
+                        };
+                        let targetTag = tagMappings[this.activeTab];
+                        if (targetTag) {
+                            source = source.filter(x => {
+                                const tags = x.booking_tags || [];
+                                if (!tags.includes(targetTag)) return false;
+                                
+                                // Strict filtering for Group and Individual tabs
+                                if (this.activeTab === 'group' || this.activeTab === 'ind') {
+                                    if (tags.includes('TPA') || tags.includes('Company')) {
+                                        return false; // Exclude bookings with overlay tags
+                                    }
+                                }
+                                return true;
+                            });
+                        }
+                    }
                 }
 
                 let items = source.slice();
@@ -355,7 +374,8 @@ function mount_vue_app() {
                 this.result = null;
                 this.expanded = null;
                 this.sel_booking = null;
-                this.view = "folios";
+                this.entityType = "folio";
+                this.activeTab = "all";
                 this.filter = "all";
                 this.search = "";
                 this.errorsOnly = false;
@@ -379,17 +399,18 @@ function mount_vue_app() {
                     callback: r => {
                         this.result = r.message;
                         this.loading = false;
-                        if (!this.has_bk) this.view = "folios";
+                        if (!this.has_bk) { this.entityType = "folio"; this.activeTab = "all"; }
                     },
                     error: () => { this.loading = false; },
                 });
             },
 
             setFilter(f) { this.filter = f; this.page = 1; if (f === 'all') this.filterMismatchType = 'all'; },
-            setView(v) { this.view = v; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
-            drillBooking(id) { this.sel_booking = id; this.view = "folios"; this.expanded = null; this.page = 1; this.filter = "all"; },
+            setEntityType(t) { this.entityType = t; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
+            setActiveTab(t) { this.activeTab = t; this.sel_booking = null; this.expanded = null; this.page = 1; this.filter = "all"; this.search = ""; },
+            drillBooking(id) { this.sel_booking = id; this.entityType = "folio"; this.expanded = null; this.page = 1; this.filter = "all"; },
             toggleDetail(f) { this.expanded = this.expanded === f ? null : f; },
-            goBack() { this.sel_booking = null; this.view = "folios"; this.expanded = null; },
+            goBack() { this.sel_booking = null; this.entityType = "reservation"; this.expanded = null; },
 
             copyDispute(f) {
                 const a = this.amt;
@@ -477,12 +498,13 @@ function mount_vue_app() {
             // KPI card click → toggle issue-type filter
             filterByIssueType(type) {
                 // If already filtering by this type, toggle off
-                if (this.view === 'folios' && this.filterMismatchType === type && this.filter === 'mismatch') {
+                if (this.entityType === 'folio' && this.filterMismatchType === type && this.filter === 'mismatch') {
                     this.filterMismatchType = 'all';
                     this.filter = 'all';
                     return;
                 }
-                this.view = 'folios';
+                this.entityType = 'folio';
+                this.activeTab = 'all';
                 this.sel_booking = null;
                 this.filter = 'mismatch';
                 this.filterMismatchType = type;
@@ -681,7 +703,7 @@ function mount_vue_app() {
                     </div>
                 </div>
 
-                <div class="rc-sidebar__section" v-if="view==='folios'">
+                <div class="rc-sidebar__section" v-if="entityType==='folio'">
                     <div class="rc-sidebar__label">Issue Type</div>
                     <div class="rc-chip-group">
                         <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='all'}" @click="filterMismatchType='all'">All</button>
@@ -736,26 +758,20 @@ function mount_vue_app() {
                 <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
-                    <button class="btn btn-xs rc-tab-btn" :class="view==='folios' ? 'btn-primary':'btn-default'"
-                            @click="setView('folios')">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z"/></svg>
-                        Res.</button>
-                    <button class="btn btn-xs rc-tab-btn" :class="view==='group_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('group_bookings')" :disabled="!has_bk">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                        Grp.</button>
-                    <button class="btn btn-xs rc-tab-btn" :class="view==='individual_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('individual_bookings')" :disabled="!has_bk">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                        Ind.</button>
-                    <button class="btn btn-xs rc-tab-btn" :class="view==='tpa_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('tpa_bookings')" :disabled="!has_bk">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-                        TPA</button>
-                    <button class="btn btn-xs rc-tab-btn" :class="view==='company_bookings' ? 'btn-primary':'btn-default'"
-                            @click="setView('company_bookings')" :disabled="!has_bk">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
-                        Corp.</button>
+                    <!-- Toggle Control -->
+                    <div style="display: inline-flex; background: var(--control-bg, rgba(0,0,0,0.05)); padding: 2px; border-radius: 6px; margin-right: 12px;">
+                        <button class="btn btn-xs" :class="entityType==='folio' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('folio')">Folio</button>
+                        <button class="btn btn-xs" :class="entityType==='reservation' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('reservation')" :disabled="!has_bk">Reservation</button>
+                    </div>
+                    
+                    <!-- View Filter Tabs -->
+                    <div class="rc-filters">
+                        <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='all'}" @click="setActiveTab('all')">All</button>
+                        <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='group'}" @click="setActiveTab('group')" :disabled="!has_bk">Group</button>
+                        <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='ind'}" @click="setActiveTab('ind')" :disabled="!has_bk">Ind.</button>
+                        <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='tpa'}" @click="setActiveTab('tpa')" :disabled="!has_bk">TPA</button>
+                        <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='company'}" @click="setActiveTab('company')" :disabled="!has_bk">Corp.</button>
+                    </div>
                 </template>
                 <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
             </div>
@@ -835,15 +851,15 @@ function mount_vue_app() {
                     <span class="rc-stat__n">{{ s.match_percent }}%</span>
                     <span class="rc-stat__l">Overall Match</span>
                 </div>
-                <div class="rc-stat rc-stat--clickable" :class="[s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='amount' && filter==='mismatch'}]" @click="filterByIssueType('amount')">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.folio.amount_mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': entityType==='folio' && filterMismatchType==='amount' && filter==='mismatch'}]" @click="filterByIssueType('amount')">
                     <span class="rc-stat__n">{{ s.levels.folio.amount_mismatched }}</span>
                     <span class="rc-stat__l">Amount Issues</span>
                 </div>
-                <div class="rc-stat rc-stat--clickable" :class="[s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='revenue' && filter==='mismatch'}]" @click="filterByIssueType('revenue')">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.revenue.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': entityType==='folio' && filterMismatchType==='revenue' && filter==='mismatch'}]" @click="filterByIssueType('revenue')">
                     <span class="rc-stat__n">{{ s.levels.revenue.mismatched }}</span>
                     <span class="rc-stat__l">Revenue Issues</span>
                 </div>
-                <div class="rc-stat rc-stat--clickable" :class="[s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': view==='folios' && filterMismatchType==='payment' && filter==='mismatch'}]" @click="filterByIssueType('payment')">
+                <div class="rc-stat rc-stat--clickable" :class="[s.levels.payment.mismatched ? 'rc-stat--err' : 'rc-stat--ok', {'rc-stat--active': entityType==='folio' && filterMismatchType==='payment' && filter==='mismatch'}]" @click="filterByIssueType('payment')">
                     <span class="rc-stat__n">{{ s.levels.payment.mismatched }}</span>
                     <span class="rc-stat__l">Payment Issues</span>
                 </div>
@@ -964,7 +980,7 @@ function mount_vue_app() {
 </div>
 
 <!-- ════════ FOLIO (INVOICE) TABLE ════════ -->
-<div v-if="view==='folios'" class="rc-card" style="margin-bottom: 30px">
+<div v-if="entityType==='folio'" class="rc-card" style="margin-bottom: 30px">
     <table class="table rc-tbl">
         <thead><tr>
             <th style="width:24px"></th><th>Folio</th><th>Guest</th><th>Room</th><th>Tags</th>
@@ -1124,5 +1140,6 @@ function mount_vue_app() {
     </div> <!-- end .rc-layout -->
 </div> <!-- end .rc -->
         `,
-    }).mount("#recon-app");
+    });
+    window.reconVueApp = app.mount("#recon-app");
 }
