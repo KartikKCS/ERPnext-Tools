@@ -160,7 +160,6 @@ function mount_vue_app() {
         data() {
             const today = frappe.datetime.get_today();
             return {
-                reconType: "PMS",
                 isActivePage: true,
                 sidebarTarget: null,
                 from_ctl: null, to_ctl: null, company_ctl: null, tol_ctl: null,
@@ -674,19 +673,7 @@ function mount_vue_app() {
         },
 
         template: `
-<div> <!-- Root Wrapper -->
-
-<!-- GLOBAL DROPDOWN -->
-<div style="padding: 10px 15px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: flex-end; background: var(--bg-base);">
-    <label style="margin-right: 12px; font-weight: 600; font-size: 13px; margin-bottom: 0px; color: var(--text-color);">Module:</label>
-    <select v-model="reconType" class="form-control input-xs" style="width: 200px; margin-bottom: 0px;">
-        <option value="PMS">PMS Reconciliation</option>
-        <option value="POS">POS Reconciliation</option>
-        <option value="Bank">Bank Reconciliation</option>
-    </select>
-</div>
-
-<div v-if="reconType === 'PMS'" class="rc">
+<div class="rc">
   <div class="rc-layout">
     
     <!-- ════════ INJECTED LEFT SIDEBAR ════════ -->
@@ -773,8 +760,8 @@ function mount_vue_app() {
                 <template v-if="!sel_booking">
                     <!-- Toggle Control -->
                     <div style="display: inline-flex; background: var(--control-bg, rgba(0,0,0,0.05)); padding: 2px; border-radius: 6px; margin-right: 12px;">
-                        <button class="btn btn-xs" :class="entityType==='folio' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('folio')">Folio Level</button>
-                        <button class="btn btn-xs" :class="entityType==='reservation' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('reservation')" :disabled="!has_bk">Reservation Level</button>
+                        <button class="btn btn-xs" :class="entityType==='folio' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('folio')">Folio</button>
+                        <button class="btn btn-xs" :class="entityType==='reservation' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('reservation')" :disabled="!has_bk">Reservation</button>
                     </div>
                     
                     <!-- View Filter Tabs -->
@@ -1152,14 +1139,6 @@ function mount_vue_app() {
         </div> <!-- end .rc-main -->
     </div> <!-- end .rc-layout -->
 </div> <!-- end .rc -->
-
-<div v-else class="rc-placeholder" style="margin-top: 40px; text-align: center;">
-    <div class="rc-placeholder__icon" style="font-size: 48px; margin-bottom: 16px;">🚧</div>
-    <h3 style="margin-bottom: 8px; font-weight: 700; color: var(--heading-color);">{{ reconType }} Reconciliation</h3>
-    <p style="color: var(--text-muted); font-size: 15px;">Coming Soon... This page is currently under development.</p>
-</div>
-
-</div> <!-- /Root Wrapper -->
         `,
     });
     window.reconVueApp = app.mount("#recon-app");
