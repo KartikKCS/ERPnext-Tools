@@ -7,7 +7,7 @@ from reconciliation_toolkit.reconciliation_toolkit.services.reconciliation_engin
     run_reconciliation as reconciliation_engine,
 )
 
-SALES_INVOICE_API_URL = "https://erp.ecohotels.in/api/method/get-invoices"
+SALES_INVOICE_API_URL = "https://ecoqa.katalystcs.com.au/api/method/get-invoices"
 BILL_SUMMARY_API_BASE_URL = "https://api.katalystcs.com.au/api/reports/bill-summary-report"
 SALES_INVOICE_HEADERS = {
     "Authorization": "token 24a082c28cc0ec2:380a7793028f821",
@@ -16,25 +16,9 @@ SALES_INVOICE_HEADERS = {
 }
 REQUEST_TIMEOUT = 60
 COMPANY_MAPPING = {
-    "THE ECO SATVA - KOTA": {
-        "abbr": "IN000004",
-        "property_id": "66dd3a63b6371e001996fd74",
-    },
-    "ECO XPRESS SATVA – VARANASI": {
-        "abbr": "IN000006",
-        "property_id": "68bacd2d8f556824238ce6a1",
-    },
-    "THE ECO SATVA – VADODARA SS": {
-        "abbr": "IN000005",
-        "property_id": "6894408ed707aa43cf7b62cf",
-    },
-    "ECO VALUE KOCHI": {
-        "abbr": "IN000002",
-        "property_id": "66faf317b1e4100019b5bd2e",
-    },
-    "THE ECO SATVA – AYODHYA": {
-        "abbr": "IN000007",
-        "property_id": "69a9a0207f5ecbf005b052c7",
+    "Mandarin Oops Oriental": {
+        "abbr": "IN000008",
+        "property_id": "669de1ba07cc0d00196f7d52",
     },
 }
 
@@ -101,6 +85,7 @@ def _fetch_bill_summary_data(property_id, from_date, to_date):
     )
     response = requests.get(
         f"{BILL_SUMMARY_API_BASE_URL}/{property_id}?{query_string}",
+        headers={"source": "stage"},
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
