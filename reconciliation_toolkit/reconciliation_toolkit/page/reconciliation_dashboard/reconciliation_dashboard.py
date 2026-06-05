@@ -11,7 +11,7 @@ SALES_INVOICE_API_URL = "http://127.0.0.1/api/method/get-invoices"
 BILL_SUMMARY_API_BASE_URL = "http://127.0.0.1:5001/api/reports/bill-summary-report"
 SALES_INVOICE_HEADERS = {
     "Host": "ecoqa.katalystcs.com.au",
-    "Authorization": "token 24a082c28cc0ec2:380a7793028f821",
+    "Authorization": "token c4e68731a8250ba:9bd4af7ad837db5",
     "Content-Type": "application/json",
     "Cookie": "full_name=Guest; sid=Guest; system_user=no; user_id=Guest; user_image=",
 }
