@@ -126,13 +126,13 @@ def _build_si_folio_map(si_records):
     return folio_map
 
 
-def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False):
+def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False, booking_tags=None):
     """Reconcile a single folio/invoice across all sub-levels."""
     folio_result = {
         "folio": bs_rec.get("folioNo") if bs_rec else si_rec.get("custom_folio_number"),
         "status": STATUS_MATCHED,
         "is_group_booking": is_group_booking,
-        "is_group_booking": is_group_booking,
+        "booking_tags": booking_tags or [],
     }
 
     # -- Folio-level (L2) amounts --
@@ -328,6 +328,52 @@ def _classify_booking_type(folios):
     return "Group" if len(unique_folios) > 1 else "Individual"
 
 
+def _classify_booking_tags(bs_recs, si_recs):
+    """
+    Return a list of classification tags for a booking.
+
+    Tags (overlapping — a booking can have multiple):
+        - "Group"      : reservation has >1 unique folio
+        - "Individual" : reservation has exactly 1 folio
+        - "TPA"        : any folio has bookingType == "TPA Booking"
+        - "Company"    : any folio has Payments.billToCompany > 0
+    """
+    all_folios = set()
+    for r in bs_recs:
+        f = r.get("folioNo", "")
+        if f:
+            all_folios.add(f)
+    for r in si_recs:
+        f = r.get("custom_folio_number", "")
+        if f:
+            all_folios.add(f)
+
+    tags = []
+
+    # Structural tag (mutually exclusive)
+    if len(all_folios) > 1:
+        tags.append("Group")
+    else:
+        tags.append("Individual")
+
+    # Business type tags (from BS data, checked at booking level)
+    is_tpa = any(
+        str(r.get("bookingType", "")).strip() == "TPA Booking"
+        for r in bs_recs
+    )
+    if is_tpa:
+        tags.append("TPA")
+
+    is_company = any(
+        _safe_float(r.get("Payments", {}).get("billToCompany", 0)) > 0
+        for r in bs_recs
+    )
+    if is_company:
+        tags.append("Company")
+
+    return tags
+
+
 # ─────────────────────────────────────────────
 # Level 4: Revenue Recon
 # ─────────────────────────────────────────────
@@ -504,6 +550,7 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
         unique_si_folios = set(si_folios)
 
         booking_type = _classify_booking_type(bs_folios + si_folios)
+        booking_tags = _classify_booking_tags(bs_recs, si_recs)
 
         bs_total = _round2(sum(_safe_float(r.get("grandTotal")) for r in bs_recs))
         si_total = _round2(sum(_safe_float(r.get("grand_total")) for r in si_recs))
@@ -531,6 +578,7 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
             "booking_id": bid,
             "status": status,
             "booking_type": booking_type,
+            "booking_tags": booking_tags,
             "bs_folio_count": len(unique_bs_folios),
             "si_folio_count": len(unique_si_folios),
             "bs_total": bs_total,
@@ -556,7 +604,6 @@ def _recon_bookings(bs_records, si_records, folio_results, tolerance):
 def _build_summary(folio_results, booking_result):
     """Build top-level summary KPIs."""
     folio_counts = {"matched": 0, "mismatched": 0, "amount_mismatched": 0, "bs_only": 0, "si_only": 0}
-    folio_counts = {"matched": 0, "mismatched": 0, "amount_mismatched": 0, "bs_only": 0, "si_only": 0}
     revenue_counts = {"matched": 0, "mismatched": 0}
     payment_counts = {"matched": 0, "mismatched": 0}
     invoice_counts = {"matched": 0, "mismatched": 0, "no_data": 0}
@@ -571,10 +618,6 @@ def _build_summary(folio_results, booking_result):
             folio_counts["bs_only"] += 1
         elif st == STATUS_SI_ONLY:
             folio_counts["si_only"] += 1
-
-        # Count actual amount-level mismatches separately (only when both sides exist)
-        if st not in (STATUS_BS_ONLY, STATUS_SI_ONLY) and f.get("amount_match") is False:
-            folio_counts["amount_mismatched"] += 1
 
         # Count actual amount-level mismatches separately (only when both sides exist)
         if st not in (STATUS_BS_ONLY, STATUS_SI_ONLY) and f.get("amount_match") is False:
@@ -640,7 +683,7 @@ def run_reconciliation(bs_data, si_data, tolerance=1.0):
     all_folios = sorted(set(list(bs_folio_map.keys()) + list(si_folio_map.keys())))
     folio_results = []
 
-    # Identify group bookings (bookings with more than 1 folio)
+    # Build booking-level groupings for tag classification
     bs_bookings = defaultdict(list)
     for r in bs_records:
         if r.get("reservationId"):
@@ -649,24 +692,36 @@ def run_reconciliation(bs_data, si_data, tolerance=1.0):
     for r in si_records:
         if r.get("custom_booking_id"):
             si_bookings[r["custom_booking_id"]].append(r)
-            
+
     group_booking_ids = {bid for bid, list_b in bs_bookings.items() if len(list_b) > 1}
     group_booking_ids.update({bid for bid, list_s in si_bookings.items() if len(list_s) > 1})
+
+    # Pre-compute booking tags per booking ID
+    all_booking_ids_set = set(list(bs_bookings.keys()) + list(si_bookings.keys()))
+    booking_tags_map = {}
+    for bid in all_booking_ids_set:
+        booking_tags_map[bid] = _classify_booking_tags(
+            bs_bookings.get(bid, []),
+            si_bookings.get(bid, []),
+        )
 
     for fol in all_folios:
         bs_rec = bs_folio_map.get(fol)
         si_rec = si_folio_map.get(fol)
-        
+
         booking_id = bs_rec.get("reservationId") if bs_rec else si_rec.get("custom_booking_id")
         is_group_booking = booking_id in group_booking_ids
+        tags = booking_tags_map.get(booking_id, [])
 
-        folio_results.append(_recon_folio(bs_rec, si_rec, tolerance, is_group_booking))
+        folio_results.append(_recon_folio(bs_rec, si_rec, tolerance, is_group_booking, tags))
 
     # Level 1: Booking recon
     booking_result = _recon_bookings(bs_records, si_records, folio_results, tolerance)
 
     # Summary
     summary = _build_summary(folio_results, booking_result)
+    summary["pms_folio_count"] = len(bs_folio_map)
+    summary["erp_folio_count"] = len(si_folio_map)
 
     # Breakdowns
     revenue_breakdown = _build_revenue_breakdown(bs_records, si_records)

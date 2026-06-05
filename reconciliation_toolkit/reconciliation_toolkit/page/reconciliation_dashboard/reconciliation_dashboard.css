@@ -184,6 +184,23 @@
     color: #dc2626;
 }
 
+.rc-stat--clickable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.rc-stat--clickable:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.rc-stat--active {
+    outline: 2px solid var(--primary, #2563eb);
+    outline-offset: -2px;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
+}
+
 /* ── Toolbar ── */
 .rc-bar {
     display: flex;
@@ -384,6 +401,58 @@
 .badge--muted {
     background: #f3f4f6;
     color: #6b7280;
+}
+
+/* ── Booking Tag Badges ── */
+.rc-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    letter-spacing: .3px;
+    line-height: 1.4;
+}
+
+.rc-tag--group {
+    background: #ede9fe;
+    color: #5b21b6;
+}
+
+.rc-tag--individual {
+    background: #e0f2fe;
+    color: #075985;
+}
+
+.rc-tag--tpa {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.rc-tag--company {
+    background: #fce7f3;
+    color: #9d174d;
+}
+
+[data-theme="dark"] .rc-tag--group {
+    background: rgba(139, 92, 246, .15);
+    color: #c4b5fd;
+}
+
+[data-theme="dark"] .rc-tag--individual {
+    background: rgba(14, 165, 233, .15);
+    color: #7dd3fc;
+}
+
+[data-theme="dark"] .rc-tag--tpa {
+    background: rgba(245, 158, 11, .15);
+    color: #fcd34d;
+}
+
+[data-theme="dark"] .rc-tag--company {
+    background: rgba(236, 72, 153, .15);
+    color: #f9a8d4;
 }
 
 .rc-icon {
@@ -927,4 +996,21 @@
 [data-theme="dark"] .rc-chip--active {
     background: var(--primary);
     color: #fff;
+}
+
+/* ── Tab Buttons with Icons ── */
+.rc-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 10px;
+}
+
+.rc-tab-btn svg {
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.rc-tab-btn.btn-primary svg {
+    opacity: 1;
 }
