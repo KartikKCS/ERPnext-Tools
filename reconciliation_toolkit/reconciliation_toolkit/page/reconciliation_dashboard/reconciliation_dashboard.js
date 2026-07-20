@@ -1,3 +1,4 @@
+frappe.pages['reconciliation-dashboard'] = frappe.pages['reconciliation-dashboard'] || {};
 frappe.pages['reconciliation-dashboard'].on_page_load = function (wrapper) {
     frappe.require(
         ["https://unpkg.com/vue@3/dist/vue.global.js"],
@@ -33,7 +34,7 @@ function init_page(wrapper) {
     setTimeout(() => clearInterval(breakContainer), 5000);
 
     page.body.append(`<div id="recon-app"></div>`);
-    mount_vue_app();
+    mount_vue_app(page);
 }
 
 /* ── Helpers ── */
@@ -153,7 +154,7 @@ function statusIcon(type, isOk) {
 
 /* ── Vue App ── */
 
-function mount_vue_app() {
+function mount_vue_app(page) {
     const { createApp } = Vue;
 
     const app = createApp({
@@ -175,6 +176,7 @@ function mount_vue_app() {
                 sel_booking: null,
                 page: 1,
                 perPage: 20,
+				frappePageObj: null,
 
                 // Sidebar state
                 sidebarOpen: true,
@@ -218,7 +220,7 @@ function mount_vue_app() {
                 } else {
                     // Otherwise pick base source by entityType
                     source = this.entityType === 'reservation' ? this.bk_list : this.fo_all;
-                    
+
                     // Filter by activeTab if it's not 'all'
                     if (this.activeTab !== 'all') {
                         let tagMappings = {
@@ -232,7 +234,7 @@ function mount_vue_app() {
                             source = source.filter(x => {
                                 const tags = x.booking_tags || [];
                                 if (!tags.includes(targetTag)) return false;
-                                
+
                                 // Strict filtering for Group and Individual tabs
                                 if (this.activeTab === 'group' || this.activeTab === 'ind') {
                                     if (tags.includes('TPA') || tags.includes('Company')) {
@@ -644,11 +646,28 @@ function mount_vue_app() {
             document.addEventListener('click', this.closeSettings);
 
             // Mount sidebar to Frappe's global sidebar
-            const fSidebar = document.querySelector('.sidebar-items') || document.querySelector('.body-sidebar') || document.querySelector('.layout-side-section') || document.querySelector('.sidebar-left');
-            if (fSidebar) {
-                if (!fSidebar.id) fSidebar.id = 'frappe-global-sidebar';
-                this.sidebarTarget = '#' + fSidebar.id;
+            // Mount sidebar using Frappe's page object directly
+if (page && page.sidebar) {
+    // page.sidebar is the actual sidebar DOM element Frappe manages
+    const sb = page.sidebar[0] || page.sidebar; // jQuery or raw element
+    if (!sb.id) sb.id = 'frappe-global-sidebar';
+    this.sidebarTarget = '#' + sb.id;
+} else {
+    // Fallback: use on_page_show to re-attempt after Frappe finishes rendering
+    const self = this;
+    const originalOnPageShow = frappe.pages['reconciliation-dashboard'].on_page_show;
+    frappe.pages['reconciliation-dashboard'].on_page_show = function() {
+        if (originalOnPageShow) originalOnPageShow();
+        self.isActivePage = true;
+        if (!self.sidebarTarget) {
+            const s = document.querySelector('.layout-side-section');
+            if (s) {
+                if (!s.id) s.id = 'frappe-global-sidebar';
+                self.sidebarTarget = '#' + s.id;
             }
+        }
+    };
+}
 
             // Apply resize CSS to the outermost layout column so Frappe honors the drag width
             const sideSection = document.querySelector('.layout-side-section');
@@ -670,92 +689,101 @@ function mount_vue_app() {
         },
         beforeUnmount() {
             document.removeEventListener('click', this.closeSettings);
+			if (this.sidebarObserver) {
+			try { this.sidebarObserver.disconnect(); } catch (e) {}
+			this.sidebarObserver = null;
+}
         },
 
         template: `
-<div class="rc">
-  <div class="rc-layout">
-    
+
+
     <!-- ════════ INJECTED LEFT SIDEBAR ════════ -->
-    <Teleport :to="sidebarTarget" :disabled="!sidebarTarget" v-if="sidebarTarget || !sidebarTarget">
-        <div id="rc-injected-sidebar" class="rc-injected-sidebar" :class="{'rc-sidebar': !sidebarTarget}" v-show="isActivePage" style="padding: 10px 15px; margin-top: 10px; border-top: 1px dashed var(--border-color);">
-            <div class="rc-sidebar__section" style="padding: 0 0 10px 0; border: none;">
-                <div class="rc-sidebar__label" style="margin-bottom: 8px; font-weight: 700;">Reconciliation Params</div>
-                <div class="rc-sidebar__field" id="rc_company"></div>
-                <div class="rc-sidebar__field" id="rc_from" style="margin-top: 4px;"></div>
-                <div class="rc-sidebar__field" id="rc_to" style="margin-top: 4px;"></div>
-                <div class="rc-sidebar__field" id="rc_tol" style="margin-top: 4px;"></div>
-                <button class="btn btn-primary btn-sm" @click="run" :disabled="loading" style="margin-top: 12px; width: 100%;">
-                    {{ loading ? "Analysing…" : "Reconcile" }}
-                </button>
+
+        <div class="rc">
+  		<div class="rc-layout" style="display: flex; flex-direction: row; align-items: flex-start;">
+
+    <!-- ════════ SELF-CONTAINED LEFT SIDEBAR ════════ -->
+    <div id="rc-injected-sidebar" class="rc-injected-sidebar rc-sidebar"
+         style="width: 280px; flex-shrink: 0; padding: 10px 15px;
+                border-right: 1px solid var(--border-color);
+                min-height: 100%; box-sizing: border-box;">
+        <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-color);">
+            <span class="rc-sidebar__label" style="font-weight: 700;">Reconciliation Params</span>
+        </div>
+        <div class="rc-sidebar__section" style="padding: 0 0 10px 0; border: none;">
+            <div class="rc-sidebar__field" id="rc_company"></div>
+            <div class="rc-sidebar__field" id="rc_from" style="margin-top: 4px;"></div>
+            <div class="rc-sidebar__field" id="rc_to" style="margin-top: 4px;"></div>
+            <div class="rc-sidebar__field" id="rc_tol" style="margin-top: 4px;"></div>
+            <button class="btn btn-primary btn-sm" @click="run" :disabled="loading" style="margin-top: 12px; width: 100%;">
+                {{ loading ? "Analysing…" : "Reconcile" }}
+            </button>
+        </div>
+
+        <template v-if="result">
+
+            <div class="rc-sidebar__section">
+                <div class="rc-sidebar__label">Status Filter</div>
+                <div class="rc-chip-group">
+                    <button class="rc-chip" :class="{'rc-chip--active': filter==='all'}" @click="setFilter('all')">All</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filter==='matched'}" @click="setFilter('matched')">Matched</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filter==='mismatch'}" @click="setFilter('mismatch')">Issues</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filter==='missing'}" @click="setFilter('missing')">Missing ERP</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filter==='missing_pms'}" @click="setFilter('missing_pms')">Missing PMS</button>
+                </div>
             </div>
 
-            <template v-if="result">
-
-                <div class="rc-sidebar__section">
-                    <div class="rc-sidebar__label">Status Filter</div>
-                    <div class="rc-chip-group">
-                        <button class="rc-chip" :class="{'rc-chip--active': filter==='all'}" @click="setFilter('all')">All</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filter==='matched'}" @click="setFilter('matched')">Matched</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filter==='mismatch'}" @click="setFilter('mismatch')">Issues</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filter==='missing'}" @click="setFilter('missing')">Missing ERP</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filter==='missing_pms'}" @click="setFilter('missing_pms')">Missing PMS</button>
-                    </div>
+            <div class="rc-sidebar__section" v-if="entityType==='folio'">
+                <div class="rc-sidebar__label">Issue Type</div>
+                <div class="rc-chip-group">
+                    <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='all'}" @click="filterMismatchType='all'">All</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='amount'}" @click="filterMismatchType='amount'">Amount</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='revenue'}" @click="filterMismatchType='revenue'">Revenue</button>
+                    <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='payment'}" @click="filterMismatchType='payment'">Payment</button>
                 </div>
+            </div>
 
-                <div class="rc-sidebar__section" v-if="entityType==='folio'">
-                    <div class="rc-sidebar__label">Issue Type</div>
-                    <div class="rc-chip-group">
-                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='all'}" @click="filterMismatchType='all'">All</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='amount'}" @click="filterMismatchType='amount'">Amount</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='revenue'}" @click="filterMismatchType='revenue'">Revenue</button>
-                        <button class="rc-chip" :class="{'rc-chip--active': filterMismatchType==='payment'}" @click="filterMismatchType='payment'">Payment</button>
-                    </div>
-                </div>
-
-                <div class="rc-sidebar__section" v-if="isBookingView && uniqueSources.length > 0">
-                    <div class="rc-sidebar__label">Sources</div>
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <label v-for="src in uniqueSources" :key="src" style="margin:0; font-size:12px; font-weight:500; cursor:pointer; display:flex; align-items:center;">
-                            <input type="checkbox" :checked="filterSources.includes(src)" @click.stop="toggleSource(src)" style="margin:0 6px 0 0;" />
-                            {{ src }}
-                        </label>
-                    </div>
-                </div>
-
-                <div class="rc-sidebar__section">
-                    <div class="rc-sidebar__label">Sort</div>
-                    <select class="form-control input-xs" v-model="sortBy" style="width:100%; margin:0;">
-                        <option value="none">Default</option>
-                        <option value="discrepancy">Discrepancy ↓</option>
-                        <option value="pms">PMS Amount ↓</option>
-                        <option value="erp">ERP Amount ↓</option>
-                        <option value="guest">Guest A–Z</option>
-                    </select>
-                </div>
-
-                <div class="rc-sidebar__section">
-                    <div class="rc-sidebar__label">Display Options</div>
-                    <label style="display:flex; align-items:center; gap:6px; cursor: pointer; color: var(--red-500); font-weight: 600; font-size: 11px; margin-bottom: 12px;">
-                        <input type="checkbox" v-model="errorsOnly" style="margin:0" /> Error Rows Only
+            <div class="rc-sidebar__section" v-if="isBookingView && uniqueSources.length > 0">
+                <div class="rc-sidebar__label">Sources</div>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    <label v-for="src in uniqueSources" :key="src" style="margin:0; font-size:12px; font-weight:500; cursor:pointer; display:flex; align-items:center;">
+                        <input type="checkbox" :checked="filterSources.includes(src)" @click.stop="toggleSource(src)" style="margin:0 6px 0 0;" />
+                        {{ src }}
                     </label>
-                    
-                    <div class="rc-sidebar__label">Diff Amount > {{ filterMinDiff > 0 ? filterMinDiff : 'Any' }}</div>
-                    <input type="range" class="rc-range" min="0" max="5000" step="50" v-model.number="filterMinDiff" style="width:100%" />
                 </div>
+            </div>
 
-                <div class="rc-sidebar__footer" style="padding: 10px 0;">
-                    <button class="btn btn-xs btn-default" style="width:100%;" @click="clearAllFilters">Reset View</button>
-                </div>
-            </template>
-        </div>
-    </Teleport>
+            <div class="rc-sidebar__section">
+                <div class="rc-sidebar__label">Sort</div>
+                <select class="form-control input-xs" v-model="sortBy" style="width:100%; margin:0;">
+                    <option value="none">Default</option>
+                    <option value="discrepancy">Discrepancy ↓</option>
+                    <option value="pms">PMS Amount ↓</option>
+                    <option value="erp">ERP Amount ↓</option>
+                    <option value="guest">Guest A–Z</option>
+                </select>
+            </div>
+
+            <div class="rc-sidebar__section">
+                <div class="rc-sidebar__label">Display Options</div>
+                <label style="display:flex; align-items:center; gap:6px; cursor: pointer; color: var(--red-500); font-weight: 600; font-size: 11px; margin-bottom: 12px;">
+                    <input type="checkbox" v-model="errorsOnly" style="margin:0" /> Error Rows Only
+                </label>
+                <div class="rc-sidebar__label">Diff Amount > {{ filterMinDiff > 0 ? filterMinDiff : 'Any' }}</div>
+                <input type="range" class="rc-range" min="0" max="5000" step="50" v-model.number="filterMinDiff" style="width:100%" />
+            </div>
+
+            <div class="rc-sidebar__footer" style="padding: 10px 0;">
+                <button class="btn btn-xs btn-default" style="width:100%;" @click="clearAllFilters">Reset View</button>
+            </div>
+        </template>
+    </div>
 
     <!-- ════════ MAIN CONTENT ════════ -->
     <div class="rc-main" style="flex:1; min-width:0;">
         <div class="rc-bar" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
             <div class="rc-bar__l" style="display: flex; align-items: center;">
-                <button v-if="!sidebarOpen" class="btn btn-xs btn-default" @click="sidebarOpen = true" style="margin-right: 8px;">☰</button>
                 <button v-if="sel_booking" class="btn btn-xs btn-default" @click="goBack">← All Bookings</button>
                 <template v-if="!sel_booking">
                     <!-- Toggle Control -->
@@ -763,7 +791,7 @@ function mount_vue_app() {
                         <button class="btn btn-xs" :class="entityType==='folio' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('folio')">Folio</button>
                         <button class="btn btn-xs" :class="entityType==='reservation' ? 'btn-primary':'btn-default'" style="border:none; box-shadow:none; font-weight:600;" @click="setEntityType('reservation')" :disabled="!has_bk">Reservation</button>
                     </div>
-                    
+
                     <!-- View Filter Tabs -->
                     <div class="rc-filters">
                         <button class="btn btn-xs btn-default" :class="{'btn-primary': activeTab==='all'}" @click="setActiveTab('all')">All</button>
@@ -775,7 +803,7 @@ function mount_vue_app() {
                 </template>
                 <span v-if="sel_booking" class="rc-crumb" style="margin-left: 8px;">{{ sel_booking }}</span>
             </div>
-            
+
             <div class="rc-bar__c" v-if="result" style="text-align: center; flex: 1; margin: 0 16px;">
                 <h4 style="margin: 0 0 2px 0; font-size: 18px; font-weight: 700; color: var(--heading-color);">{{ selectedCompany }}</h4>
                 <div style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
@@ -993,7 +1021,7 @@ function mount_vue_app() {
             :class="{'rc-row-err':f.status==='mismatch','rc-row-warn':f.status==='bs_only'}"
             @click="toggleDetail(f.folio)">
             <td class="rc-caret" style="width: 32px; text-align: center;">
-                <div v-html="getFolioIcon(f)" 
+                <div v-html="getFolioIcon(f)"
                      :style="{ transform: expanded === f.folio ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }">
                 </div>
             </td>
@@ -1064,7 +1092,7 @@ function mount_vue_app() {
                                 </tr>
                                 </tbody>
                             </table>
-                            
+
                             <div style="display: flex; gap: 24px; font-size: 11px;">
                                 <div class="rc-breakdown-box" :style="pmsBorder" style="flex: 1;">
                                     <strong class="rc-breakdown-box__label" :style="pmsColor ? {color: pmsColor} : {}">PMS Breakdown</strong>

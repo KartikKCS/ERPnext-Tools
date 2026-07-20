@@ -143,23 +143,11 @@ add_to_apps_screen = [
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"reconciliation_toolkit.tasks.all"
-# 	],
-# 	"daily": [
-# 		"reconciliation_toolkit.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"reconciliation_toolkit.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"reconciliation_toolkit.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"reconciliation_toolkit.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"reconciliation_toolkit.reconciliation_toolkit.sync_insights_data.sync_data"
+	]
+}
 
 # Testing
 # -------

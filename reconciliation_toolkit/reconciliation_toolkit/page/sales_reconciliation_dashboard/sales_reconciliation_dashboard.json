@@ -1,0 +1,21 @@
+{
+ "creation": "2024-11-20 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "modified": "2024-11-20 00:00:00.000000",
+ "module": "Reconciliation Toolkit",
+ "name": "sales-reconciliation-dashboard",
+ "page_name": "sales-reconciliation-dashboard",
+ "roles": [
+  {
+   "role": "Sales Manager"
+  },
+  {
+   "role": "Sales User"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "title": "Sales Reconciliation Dashboard"
+}

@@ -163,6 +163,7 @@ def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False, booking_tags
             "si_customer": si_rec.get("customer_name", si_rec.get("customer", "")),
             "bs_booking_type": bs_rec.get("bookingType", ""),
             "bs_room": bs_rec.get("roomNo", ""),
+            "folio_date": si_rec.get("posting_date") or bs_rec.get("arrivalDate") or bs_rec.get("date") or "",
         })
         # Sub-levels
         folio_result["revenue"] = _recon_revenue(bs_rec, si_rec, tolerance)
@@ -185,6 +186,7 @@ def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False, booking_tags
             "si_customer": None,
             "bs_booking_type": bs_rec.get("bookingType", ""),
             "bs_room": bs_rec.get("roomNo", ""),
+            "folio_date": bs_rec.get("arrivalDate") or bs_rec.get("date") or "",
             "revenue": None,
             "payment": None,
         })
@@ -199,6 +201,7 @@ def _recon_folio(bs_rec, si_rec, tolerance, is_group_booking=False, booking_tags
             "si_customer": si_rec.get("customer_name", si_rec.get("customer", "")),
             "bs_booking_type": None,
             "bs_room": None,
+            "folio_date": si_rec.get("posting_date") or "",
             "revenue": None,
             "payment": None,
         })

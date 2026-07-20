@@ -7,10 +7,9 @@ from reconciliation_toolkit.reconciliation_toolkit.services.reconciliation_engin
     run_reconciliation as reconciliation_engine,
 )
 
-SALES_INVOICE_API_URL = "http://127.0.0.1/api/method/get-invoices"
-BILL_SUMMARY_API_BASE_URL = "http://127.0.0.1:5001/api/reports/bill-summary-report"
+SALES_INVOICE_API_URL = "https://ecoqa.katalystcs.com.au/api/method/get-invoices"
+BILL_SUMMARY_API_BASE_URL = "https://api.katalystcs.com.au/api/reports/bill-summary-report"
 SALES_INVOICE_HEADERS = {
-    "Host": "ecoqa.katalystcs.com.au",
     "Authorization": "token c4e68731a8250ba:9bd4af7ad837db5",
     "Content-Type": "application/json",
     "Cookie": "full_name=Guest; sid=Guest; system_user=no; user_id=Guest; user_image=",
@@ -176,3 +175,89 @@ def run_reconciliation(from_date, to_date, company, tolerance=1.0):
 
     merged_si_data = _merge_sales_invoice_payloads(si_data, retry_si_data)
     return reconciliation_engine(bs_data, merged_si_data, float(tolerance))
+
+
+@frappe.whitelist(allow_guest=True)
+def get_insights_data(from_date=None, to_date=None, company="Mandarin Oops Oriental", tolerance=1.0):
+    """
+    API endpoint specifically for Frappe Insights.
+    Returns a flattened array of reconciliation folios.
+    """
+    from frappe.utils import add_days, today
+
+    if not to_date:
+        to_date = today()
+    if not from_date:
+        from_date = add_days(to_date, -30)
+
+    # Call the main reconciliation process
+    data = run_reconciliation(from_date, to_date, company, tolerance)
+    
+    folios = data.get("folios", [])
+    flat_data = []
+
+    for f in folios:
+        raw_date = f.get("folio_date")
+        if raw_date and len(str(raw_date)) >= 10:
+            parsed_date = str(raw_date)[:10]
+        else:
+            parsed_date = to_date
+            
+        flat_f = {
+            "folio": f.get("folio"),
+            "reconciliation_date": parsed_date,
+            "status": f.get("status"),
+            "is_group_booking": f.get("is_group_booking", False),
+            
+            # Basic amounts
+            "bs_grand_total": f.get("bs_grand_total") or 0.0,
+            "si_grand_total": f.get("si_grand_total") or 0.0,
+            "difference": f.get("difference") or 0.0,
+            "amount_match": 1 if f.get("amount_match") else 0,
+            
+            # Status and Names
+            "bs_payment_state": f.get("bs_payment_state", ""),
+            "si_payment_state": f.get("si_payment_state", ""),
+            "status_match": 1 if f.get("status_match") else 0,
+            "bs_guest_name": f.get("bs_guest_name", ""),
+            "si_customer": f.get("si_customer", ""),
+            "bs_booking_type": f.get("bs_booking_type", ""),
+            "bs_room": f.get("bs_room", ""),
+        }
+        
+        # Flatten revenue nested dictionary
+        rev = f.get("revenue") or {}
+        flat_f.update({
+            "revenue_status": rev.get("status", ""),
+            "revenue_bs_total": rev.get("bs_total") or 0.0,
+            "revenue_si_total": rev.get("si_total") or 0.0,
+            "revenue_pretax_match": 1 if rev.get("pretax_match") else 0,
+            "revenue_tax_match": 1 if rev.get("tax_match") else 0,
+            "revenue_total_match": 1 if rev.get("total_match") else 0,
+        })
+        
+        # Flatten payment nested dictionary
+        pay = f.get("payment") or {}
+        flat_f.update({
+            "payment_status": pay.get("status", ""),
+            "payment_bs_total_paid": pay.get("bs_total_paid") or 0.0,
+            "payment_si_total_paid": pay.get("si_total_paid") or 0.0,
+            "payment_total_match": 1 if pay.get("total_match") else 0,
+            "payment_si_fully_paid": 1 if pay.get("si_is_fully_paid") else 0,
+            "payment_erp_exceeds_pms": 1 if pay.get("erp_exceeds_pms") else 0,
+        })
+        
+        # Booking Tags (join them into a comma-separated string)
+        tags = f.get("booking_tags") or []
+        flat_f["booking_tags"] = ", ".join(tags)
+
+        flat_data.append(flat_f)
+
+    # Note: Returning {"message": [...]} so that Insights can use $.message JSON path
+    # Actually frappe.whitelist automatically wraps returns in {"message": return_value}
+    return flat_data
+
+@frappe.whitelist(allow_guest=True)
+def log_frontend_error(error_msg):
+    with open('/home/kartik/my-bench/frontend_error.log', 'a') as f:
+        f.write(str(error_msg) + '\n')

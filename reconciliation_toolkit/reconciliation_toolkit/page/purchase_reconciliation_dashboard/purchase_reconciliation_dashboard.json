@@ -1,0 +1,16 @@
+{
+ "creation": "2024-01-01 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "modified": "2024-01-01 00:00:00.000000",
+ "module": "Reconciliation Toolkit",
+ "name": "purchase-reconciliation-dashboard",
+ "page_name": "Purchase Reconciliation Dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "standard": "Yes",
+ "title": "Purchase Reconciliation Dashboard"
+}
