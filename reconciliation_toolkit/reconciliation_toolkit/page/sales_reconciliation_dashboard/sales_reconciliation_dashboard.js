@@ -43,15 +43,11 @@ function pct(v) {
     return Math.round(v * 100) / 100 + "%";
 }
 
-function _generateMockData(filters) {
+function _generateMockData() {
     const data = [];
-    const customers = ["Acme Corp", "Globex", "Initech", "Soylent", "Umbrella Corp"];
+    const customers = ["Acme Corp", "Globex", "Initech", "Soylent", "Umbrella Corp", "Wayne Enterprises", "Stark Industries"];
     
-    // Simulate API responding to filters
-    let numToGenerate = 45;
-    if (filters.customer) {
-        numToGenerate = 15;
-    }
+    let numToGenerate = 150;
 
     for (let i = 1; i <= numToGenerate; i++) {
         const roll = Math.random();
@@ -98,7 +94,6 @@ function _generateMockData(filters) {
         }
 
         let custName = customers[i % customers.length];
-        if (filters.customer) custName = filters.customer;
 
         data.push({
             id: i,
@@ -130,20 +125,35 @@ function mount_vue_app(page) {
     createApp({
         data() {
             return {
-                transactions: [],
+                allTransactions: [],
                 loading: true,
+                sidebarOpen: true,
                 
                 // Pagination
                 currentPage: 1,
                 perPage: 10,
                 
-                // Filters
+                // Sidebar Filters
                 filters: {
                     from_date: frappe.datetime.add_months(frappe.datetime.get_today(), -3),
                     to_date: frappe.datetime.get_today(),
                     company: "",
                     customer: "",
                     status: ""
+                },
+
+                company_ctl: null,
+                customer_ctl: null,
+                from_ctl: null,
+                to_ctl: null,
+
+                // Interactive Dashboard Filters
+                dashFilters: {
+                    kpi: null,
+                    month: null,
+                    status: null,
+                    customer: null,
+                    aging: null
                 },
 
                 kpis: {
@@ -157,17 +167,31 @@ function mount_vue_app(page) {
                     collection_efficiency: 0,
                     invoice_match_rate: 0,
                     dso: 0
-                },
-                
-                charts: {}
+                }
             };
         },
         computed: {
             filteredTransactions() {
-                let list = this.transactions;
-                if (this.filters.status) {
-                    list = list.filter(t => t.status === this.filters.status);
+                let list = this.allTransactions;
+                
+                // Sidebar Filters
+                if (this.filters.status) list = list.filter(t => t.status === this.filters.status);
+                if (this.filters.customer) list = list.filter(t => t.customer.toLowerCase().includes(this.filters.customer.toLowerCase()));
+                if (this.filters.from_date) {
+                    const fd = new Date(this.filters.from_date);
+                    list = list.filter(t => new Date(t.date) >= fd);
                 }
+                if (this.filters.to_date) {
+                    const td = new Date(this.filters.to_date);
+                    list = list.filter(t => new Date(t.date) <= td);
+                }
+
+                // Dashboard Interactive Filters
+                if (this.dashFilters.month) list = list.filter(t => t.month === this.dashFilters.month);
+                if (this.dashFilters.status) list = list.filter(t => t.status === this.dashFilters.status);
+                if (this.dashFilters.customer) list = list.filter(t => t.customer === this.dashFilters.customer);
+                if (this.dashFilters.aging) list = list.filter(t => t.aging === this.dashFilters.aging);
+
                 return list;
             },
             paginatedTransactions() {
@@ -176,27 +200,70 @@ function mount_vue_app(page) {
             },
             totalPages() {
                 return Math.ceil(this.filteredTransactions.length / this.perPage);
+            },
+            hasDashFilters() {
+                return Object.values(this.dashFilters).some(v => v !== null);
+            }
+        },
+        watch: {
+            filteredTransactions() {
+                this.calculateKPIs();
+                this.currentPage = 1;
+                this.$nextTick(() => {
+                    this.renderCharts();
+                });
             }
         },
         mounted() {
+            this.company_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_company"),
+                df: { label: "Company", fieldtype: "Link", options: "Company", default: this.filters.company },
+                render_input: true,
+            });
+            this.customer_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_customer"),
+                df: { label: "Customer", fieldtype: "Link", options: "Customer", default: this.filters.customer },
+                render_input: true,
+            });
+            this.from_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_from"),
+                df: { label: "From Date", fieldtype: "Date", default: this.filters.from_date },
+                render_input: true,
+            });
+            this.to_ctl = frappe.ui.form.make_control({
+                parent: document.getElementById("rc_to"),
+                df: { label: "To Date", fieldtype: "Date", default: this.filters.to_date },
+                render_input: true,
+            });
+            
             this.fetchData();
         },
         methods: {
             amt, pct,
             
             fetchData() {
+                if (this.company_ctl) this.filters.company = this.company_ctl.get_value();
+                if (this.customer_ctl) this.filters.customer = this.customer_ctl.get_value();
+                if (this.from_ctl) this.filters.from_date = this.from_ctl.get_value();
+                if (this.to_ctl) this.filters.to_date = this.to_ctl.get_value();
+
                 this.loading = true;
-                // Pretend to call API with this.filters
                 setTimeout(() => {
-                    this.transactions = _generateMockData(this.filters);
-                    this.calculateKPIs();
-                    this.currentPage = 1;
+                    this.allTransactions = _generateMockData();
                     this.loading = false;
-                    
-                    this.$nextTick(() => {
-                        this.renderCharts();
-                    });
-                }, 600);
+                }, 400);
+            },
+
+            clearDashFilters() {
+                this.dashFilters = { kpi: null, month: null, status: null, customer: null, aging: null };
+            },
+
+            setDashFilter(key, value) {
+                if (this.dashFilters[key] === value) {
+                    this.dashFilters[key] = null; // toggle off
+                } else {
+                    this.dashFilters[key] = value;
+                }
             },
 
             calculateKPIs() {
@@ -205,7 +272,7 @@ function mount_vue_app(page) {
                 let matchedAmt = 0, unmatchedAmt = 0;
                 let matchedCount = 0;
 
-                this.transactions.forEach(t => {
+                this.filteredTransactions.forEach(t => {
                     soCount++;
                     if (t.status !== "PENDING_INVOICE") {
                         invCount++;
@@ -232,7 +299,7 @@ function mount_vue_app(page) {
                     unreconciled_amount: unmatchedAmt,
                     collection_efficiency: invAmt > 0 ? (payAmt / invAmt) * 100 : 0,
                     invoice_match_rate: invCount > 0 ? (matchedCount / invCount) * 100 : 0,
-                    dso: outAmt > 0 ? Math.round((outAmt / (invAmt || 1)) * 30) : 0 // Proxy calculation
+                    dso: outAmt > 0 ? Math.round((outAmt / (invAmt || 1)) * 30) : 0
                 };
             },
 
@@ -266,8 +333,7 @@ function mount_vue_app(page) {
                 const aging = { "< 30 Days": 0, "30-60 Days": 0, "60-90 Days": 0, "> 90 Days": 0 };
                 const statuses = { "MATCHED": 0, "UNDERCHARGED": 0, "OVERCHARGED": 0 };
 
-                this.transactions.forEach(t => {
-                    // Months
+                this.filteredTransactions.forEach(t => {
                     if (!months[t.month]) months[t.month] = { sales: 0, inv: 0, pay: 0, matchCount: 0, totalCount: 0 };
                     months[t.month].sales += t.so_total;
                     if (t.status !== "PENDING_INVOICE") {
@@ -277,71 +343,183 @@ function mount_vue_app(page) {
                         if (t.status === "MATCHED") months[t.month].matchCount++;
                         if (statuses[t.status] !== undefined) statuses[t.status]++;
                     }
-                    
-                    // Aging
                     if (t.outstanding > 0 && t.aging !== "Current") {
                         if (aging[t.aging] !== undefined) aging[t.aging] += t.outstanding;
                     }
-                    
-                    // Customers
                     if (!customers[t.customer]) customers[t.customer] = 0;
                     customers[t.customer] += t.so_total;
                 });
 
-                const monthLabels = Object.keys(months).reverse(); // simple sort
+                // Ensure all recent months are present so charts don't break if filtered heavily
+                const allMonths = [...new Set(this.allTransactions.map(t => t.month))].reverse();
+                let monthLabels = Object.keys(months);
+                monthLabels.sort((a,b) => allMonths.indexOf(a) - allMonths.indexOf(b));
+
                 const salesData = monthLabels.map(m => months[m].sales);
                 const invData = monthLabels.map(m => months[m].inv);
                 const payData = monthLabels.map(m => months[m].pay);
                 const matchRateData = monthLabels.map(m => months[m].totalCount > 0 ? (months[m].matchCount / months[m].totalCount)*100 : 0);
 
                 const custSorted = Object.entries(customers).sort((a,b) => b[1] - a[1]).slice(0,5);
+                const custLabels = custSorted.map(c => c[0]);
+
+                const createNavigableChart = (id, options, onClick) => {
+                    const el = document.querySelector(id);
+                    if (!el) return;
+                    el.innerHTML = "";
+                    options.isNavigable = 1;
+                    const chart = new frappe.Chart(id, options);
+                    
+                    if (el._chartSelectHandler) {
+                        el.removeEventListener('data-select', el._chartSelectHandler);
+                    }
+                    el._chartSelectHandler = (e) => {
+                        if (onClick) onClick(e);
+                    };
+                    el.addEventListener('data-select', el._chartSelectHandler);
+
+                    // Also add a cursor pointer to make it obvious
+                    const svg = el.querySelector('svg');
+                    if (svg) svg.style.cursor = 'pointer';
+
+                    return chart;
+                };
 
                 // 1. Sales Trend
-                new frappe.Chart("#chart-sales-trend", {
+                createNavigableChart("#chart-sales-trend", {
                     title: "Sales Trend",
                     data: { labels: monthLabels, datasets: [{ name: "Sales Orders", values: salesData }] },
                     type: 'line', height: 250, colors: ['#2563eb']
-                });
+                }, (e) => this.setDashFilter('month', e.label));
 
                 // 2. Invoice vs Payment
-                new frappe.Chart("#chart-inv-pay", {
+                createNavigableChart("#chart-inv-pay", {
                     title: "Invoice vs Payment",
                     data: { labels: monthLabels, datasets: [
                         { name: "Invoiced", values: invData },
                         { name: "Paid", values: payData }
                     ] },
                     type: 'bar', height: 250, colors: ['#6366f1', '#10b981']
-                });
+                }, (e) => this.setDashFilter('month', e.label));
 
-                // 3. Recon Status (Pie)
-                new frappe.Chart("#chart-recon-status", {
-                    title: "Reconciliation Status",
-                    data: { 
-                        labels: ["Matched", "Undercharged", "Overcharged"], 
-                        datasets: [{ values: [statuses["MATCHED"], statuses["UNDERCHARGED"], statuses["OVERCHARGED"]] }] 
-                    },
-                    type: 'pie', height: 250, colors: ['#10b981', '#ef4444', '#f59e0b']
-                });
+                // 3. Recon Status (Pie -> Custom SVG Donut)
+                const reconEl = document.querySelector("#chart-recon-status");
+                if (reconEl) {
+                    const rLabels = ["MATCHED", "UNDERCHARGED", "OVERCHARGED"];
+                    const rValues = [statuses["MATCHED"], statuses["UNDERCHARGED"], statuses["OVERCHARGED"]];
+                    const rColors = ['#10b981', '#ef4444', '#f59e0b'];
+                    const rTotal = rValues.reduce((a,b)=>a+b, 0);
+
+                    const size = 180, cx = size/2, cy = size/2, radius = 68, stroke = 28;
+                    let cumulativeAngle = -90;
+                    let pathsHTML = '';
+                    rValues.forEach((val, i) => {
+                        if(val === 0) return;
+                        const sweep = (val / rTotal) * 360;
+                        const actualSweep = Math.min(sweep, 359.9);
+                        const startRad = (cumulativeAngle * Math.PI) / 180;
+                        const endRad = ((cumulativeAngle + actualSweep) * Math.PI) / 180;
+                        const x1 = cx + radius * Math.cos(startRad);
+                        const y1 = cy + radius * Math.sin(startRad);
+                        const x2 = cx + radius * Math.cos(endRad);
+                        const y2 = cy + radius * Math.sin(endRad);
+                        const largeArc = actualSweep > 180 ? 1 : 0;
+                        const path = `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`;
+                        pathsHTML += `<path d="${path}" fill="none" stroke="${rColors[i]}" stroke-width="${stroke}"
+                            data-idx="${i}" class="rc-donut-segment"
+                            style="cursor:pointer; transition: stroke-width 0.2s ease, opacity 0.2s ease;"/>`;
+                        cumulativeAngle += sweep;
+                    });
+
+                    reconEl.innerHTML = `
+                        <div style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-main);">Reconciliation Status</div>
+                        <div class="rc-donut-wrapper" style="position:relative; width:${size}px; height:${size}px; margin: 8px auto 0;">
+                            <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+                                ${pathsHTML}
+                            </svg>
+                            <div class="rc-donut-center">
+                                <div class="rc-donut-center__count">${rTotal}</div>
+                                <div class="rc-donut-center__label">Total Docs</div>
+                            </div>
+                            <div class="rc-donut-tooltip" style="display:none;"></div>
+                        </div>
+                    `;
+
+                    const segments = reconEl.querySelectorAll('.rc-donut-segment');
+                    const tooltip = reconEl.querySelector('.rc-donut-tooltip');
+                    segments.forEach(seg => {
+                        const idx = parseInt(seg.getAttribute('data-idx'));
+                        const pctVal = rTotal > 0 ? Math.round((rValues[idx] / rTotal) * 100) : 0;
+                        seg.addEventListener('mouseenter', () => {
+                            seg.style.strokeWidth = stroke + 6;
+                            seg.style.opacity = '1';
+                            segments.forEach(s => { if(s !== seg) s.style.opacity = '0.45'; });
+                            tooltip.innerHTML = `<strong>${rLabels[idx]}</strong><br>${rValues[idx]} (${pctVal}%)`;
+                            tooltip.style.display = 'block';
+                        });
+                        seg.addEventListener('mousemove', (e) => {
+                            const rect = reconEl.querySelector('.rc-donut-wrapper').getBoundingClientRect();
+                            tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+                            tooltip.style.top = (e.clientY - rect.top - 30) + 'px';
+                        });
+                        seg.addEventListener('mouseleave', () => {
+                            seg.style.strokeWidth = stroke;
+                            segments.forEach(s => s.style.opacity = '1');
+                            tooltip.style.display = 'none';
+                        });
+                        seg.addEventListener('click', () => {
+                            this.setDashFilter('status', rLabels[idx]);
+                        });
+                    });
+                }
 
                 // 4. Monthly Collection Trend
-                new frappe.Chart("#chart-monthly-coll", {
+                createNavigableChart("#chart-monthly-coll", {
                     title: "Monthly Collection Trend",
                     data: { labels: monthLabels, datasets: [{ name: "Collections", values: payData }] },
                     type: 'line', height: 250, colors: ['#059669']
-                });
+                }, (e) => this.setDashFilter('month', e.label));
 
                 // 5. Top Customers
-                new frappe.Chart("#chart-top-cust", {
+                createNavigableChart("#chart-top-cust", {
                     title: "Top Customers",
                     data: { 
-                        labels: custSorted.map(c => c[0]), 
+                        labels: custLabels, 
                         datasets: [{ name: "Order Value", values: custSorted.map(c => c[1]) }] 
                     },
                     type: 'bar', height: 250, colors: ['#3b82f6']
-                });
+                }, null);
+                
+                setTimeout(() => {
+                    const custChartEl = document.querySelector("#chart-top-cust svg");
+                    if (custChartEl && !custChartEl._custClickBound) {
+                        custChartEl._custClickBound = true;
+                        custChartEl.addEventListener('click', (e) => {
+                            let idx = null;
+                            let target = e.target;
+                            while (target && target.tagName !== 'svg' && target.tagName !== 'SVG') {
+                                if (target.hasAttribute('data-point-index')) {
+                                    idx = parseInt(target.getAttribute('data-point-index'));
+                                    break;
+                                }
+                                target = target.parentNode;
+                            }
+                            if (idx === null && e.target.tagName.toLowerCase() === 'rect') {
+                                const parent = e.target.closest('g.dataset-units');
+                                if (parent) {
+                                    const rects = Array.from(parent.querySelectorAll('rect'));
+                                    idx = rects.indexOf(e.target);
+                                }
+                            }
+                            if (idx !== null && idx >= 0 && custLabels[idx]) {
+                                this.setDashFilter('customer', custLabels[idx]);
+                            }
+                        });
+                    }
+                }, 100);
 
                 // 6. Invoice Aging (Stacked)
-                new frappe.Chart("#chart-aging", {
+                createNavigableChart("#chart-aging", {
                     title: "Invoice Aging",
                     data: { 
                         labels: ["Outstanding Amount"], 
@@ -353,67 +531,90 @@ function mount_vue_app(page) {
                         ] 
                     },
                     type: 'bar', barOptions: { stacked: true }, height: 250, colors: ['#10b981', '#f59e0b', '#f97316', '#ef4444']
-                });
+                }, null);
+                
+                // Add robust manual click listener for the stacked bar
+                setTimeout(() => {
+                    const agingChartEl = document.querySelector("#chart-aging svg");
+                    if (agingChartEl && !agingChartEl._agingClickBound) {
+                        agingChartEl._agingClickBound = true;
+                        agingChartEl.addEventListener('click', (e) => {
+                            // Find which dataset was clicked by checking legend or rect index
+                            const text = e.target.textContent || '';
+                            if (["< 30 Days", "30-60 Days", "60-90 Days", "> 90 Days"].includes(text.trim())) {
+                                this.setDashFilter('aging', text.trim());
+                                return;
+                            }
+                            // Fallback to finding the dataset based on DOM hierarchy
+                            if (e.target.tagName.toLowerCase() === 'rect') {
+                                const parentGroup = e.target.closest('g.dataset-units');
+                                if (parentGroup) {
+                                    // In stacked charts, there are multiple dataset-units groups.
+                                    // Find which one we clicked.
+                                    const allGroups = Array.from(agingChartEl.querySelectorAll('g.dataset-units'));
+                                    const datasetIndex = allGroups.indexOf(parentGroup);
+                                    const datasetNames = ["< 30 Days", "30-60 Days", "60-90 Days", "> 90 Days"];
+                                    if (datasetIndex >= 0 && datasetIndex < datasetNames.length) {
+                                        this.setDashFilter('aging', datasetNames[datasetIndex]);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }, 100);
 
                 // 7. Invoice Match Rate Trend
-                new frappe.Chart("#chart-match-rate", {
+                createNavigableChart("#chart-match-rate", {
                     title: "Invoice Match Rate Trend (%)",
                     data: { labels: monthLabels, datasets: [{ name: "Match Rate", values: matchRateData }] },
                     type: 'line', height: 250, colors: ['#8b5cf6']
-                });
+                }, (e) => this.setDashFilter('month', e.label));
             }
         },
         template: `
             <div class="dashboard-layout">
                 
                 <!-- SIDEBAR -->
-                <div class="sidebar">
-                    <div class="sidebar-title">Filters</div>
-                    
+                <aside class="sidebar">
+                    <div class="sidebar-title">RECONCILIATION PARAMS</div>
                     <div class="filter-group">
-                        <label>From Date</label>
-                        <input type="date" v-model="filters.from_date" />
+                        <div class="rc-sidebar__field" id="rc_company" style="margin-top: 4px;"></div>
+                        <div class="rc-sidebar__field" id="rc_customer" style="margin-top: 4px;"></div>
+                        <div class="rc-sidebar__field" id="rc_from" style="margin-top: 4px;"></div>
+                        <div class="rc-sidebar__field" id="rc_to" style="margin-top: 4px;"></div>
+                        
+                        <div style="margin-top: 15px;">
+                            <label>Status Filter</label>
+                            <select v-model="filters.status">
+                                <option value="">All Statuses</option>
+                                <option value="MATCHED">Matched</option>
+                                <option value="UNDERCHARGED">Revenue Leakage</option>
+                                <option value="OVERCHARGED">Dispute Risk</option>
+                                <option value="PENDING_INVOICE">Pending Invoice</option>
+                            </select>
+                        </div>
                     </div>
-                    
-                    <div class="filter-group">
-                        <label>To Date</label>
-                        <input type="date" v-model="filters.to_date" />
-                    </div>
-                    
-                    <div class="filter-group">
-                        <label>Company</label>
-                        <select v-model="filters.company">
-                            <option value="">All Companies</option>
-                            <option value="Company A">Company A</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label>Customer</label>
-                        <input type="text" v-model="filters.customer" placeholder="Search customer..." />
-                    </div>
-
-                    <div class="filter-group">
-                        <label>Status</label>
-                        <select v-model="filters.status">
-                            <option value="">All Statuses</option>
-                            <option value="MATCHED">Matched</option>
-                            <option value="UNDERCHARGED">Revenue Leakage</option>
-                            <option value="OVERCHARGED">Dispute Risk</option>
-                            <option value="PENDING_INVOICE">Pending Invoice</option>
-                        </select>
-                    </div>
-
                     <button class="filter-btn" @click="fetchData">Apply Filters</button>
-                </div>
+                </aside>
 
                 <!-- MAIN CONTENT -->
                 <div class="main-content">
-                    <div class="dashboard-header">
+                    <div class="dashboard-header" style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <h1 class="dashboard-title">Sales Reconciliation</h1>
                             <div class="dashboard-subtitle">Monitor quotation to invoice lifecycle and prevent revenue leakage.</div>
                         </div>
+                    </div>
+
+                    <!-- ACTIVE FILTERS -->
+                    <div v-if="hasDashFilters" style="margin-bottom: 20px; padding: 10px; background: #f1f5f9; border-radius: 8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size: 13px; font-weight: 600; color: #475569;">Active Filters:</span>
+                        <span v-if="dashFilters.kpi" class="badge" style="background:#3b82f6; cursor:pointer; color: white;" @click="dashFilters.kpi = null">KPI: {{ dashFilters.kpi.replace(/_/g, ' ') }} &times;</span>
+                        <span v-if="dashFilters.month" class="badge" style="background:#3b82f6; cursor:pointer; color: white;" @click="dashFilters.month = null">Month: {{ dashFilters.month }} &times;</span>
+                        <span v-if="dashFilters.status" class="badge" style="background:#3b82f6; cursor:pointer; color: white;" @click="dashFilters.status = null">Status: {{ dashFilters.status }} &times;</span>
+                        <span v-if="dashFilters.customer" class="badge" style="background:#3b82f6; cursor:pointer; color: white;" @click="dashFilters.customer = null">Customer: {{ dashFilters.customer }} &times;</span>
+                        <span v-if="dashFilters.aging" class="badge" style="background:#3b82f6; cursor:pointer; color: white;" @click="dashFilters.aging = null">Aging: {{ dashFilters.aging }} &times;</span>
+                        <span style="font-size: 12px; color: #ef4444; cursor:pointer; margin-left: auto; font-weight: bold;" @click="clearDashFilters">Clear All</span>
                     </div>
 
                     <div v-if="loading" style="padding: 40px; text-align: center; color: var(--text-muted);">
@@ -457,6 +658,10 @@ function mount_vue_app(page) {
                                 <div class="text-right">Invoice Total</div>
                                 <div class="text-right">Variance</div>
                                 <div style="text-align: center;">Status</div>
+                            </div>
+
+                            <div v-if="paginatedTransactions.length === 0" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                                No data found for the selected filters.
                             </div>
 
                             <div v-for="txn in paginatedTransactions" :key="txn.id">
@@ -522,7 +727,7 @@ function mount_vue_app(page) {
                             </div>
                             
                             <!-- Pagination Controls -->
-                            <div class="pagination">
+                            <div class="pagination" v-if="filteredTransactions.length > 0">
                                 <div>Showing {{ (currentPage - 1) * perPage + 1 }} to {{ Math.min(currentPage * perPage, filteredTransactions.length) }} of {{ filteredTransactions.length }} entries</div>
                                 <div class="pagination-controls">
                                     <button :disabled="currentPage === 1" @click="prevPage">Previous</button>
@@ -530,7 +735,6 @@ function mount_vue_app(page) {
                                     <button :disabled="currentPage === totalPages || totalPages === 0" @click="nextPage">Next</button>
                                 </div>
                             </div>
-
                         </div>
                     </div>
                 </div>
