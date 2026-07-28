@@ -39,4 +39,6 @@ This app can use GitHub Actions for CI. The following workflows are configured:
 
 mit
 
-# erp-recon-tool
+# ERPNext Reconciliation Toolkit
+
+A comprehensive suite of tools for data reconciliation in ERPNext.
